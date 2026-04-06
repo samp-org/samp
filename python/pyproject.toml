@@ -1,0 +1,18 @@
+[project]
+name = "samp"
+version = "1.0.0"
+description = "Substrate Account Messaging Protocol -- Python SDK"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = ["samp-crypto"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.urls]
+Repository = "https://github.com/samp-org/samp"
+Specification = "https://github.com/samp-org/samp/blob/main/specs/samp-v1.md"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

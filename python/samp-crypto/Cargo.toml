@@ -1,0 +1,18 @@
+[package]
+name = "samp-crypto"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "samp_crypto"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = "0.28"
+schnorrkel = "0.11"
+curve25519-dalek = { version = "4", features = ["digest"] }
+hkdf = "0.12"
+sha2 = "0.10"
+chacha20poly1305 = "0.10"
+getrandom = "0.2"

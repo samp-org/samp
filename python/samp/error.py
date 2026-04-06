@@ -1,0 +1,2 @@
+class SampError(Exception):
+    pass

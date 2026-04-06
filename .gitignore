@@ -1,0 +1,25 @@
+# Build artifacts
+target/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+*.whl
+*.so
+*.dylib
+
+# Environment
+.venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
+
