@@ -240,8 +240,11 @@ func TestConformanceEncryptedIntermediates(t *testing.T) {
 func TestConformanceRecipientDecrypt(t *testing.T) {
 	v := loadVectors(t)
 	bobScalar := Sr25519SigningScalar(h32(v.Bob.Seed))
-	nonce := h12(v.EncryptedMessage.Nonce)
-	plaintext, err := Decrypt(h(v.EncryptedMessage.EncryptedContent), bobScalar, nonce)
+	r, err := DecodeRemark(h(v.EncryptedMessage.Remark))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := Decrypt(r, bobScalar)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +256,11 @@ func TestConformanceRecipientDecrypt(t *testing.T) {
 func TestConformanceSenderSelfDecrypt(t *testing.T) {
 	v := loadVectors(t)
 	aliceSeed := h32(v.Alice.Seed)
-	nonce := h12(v.EncryptedMessage.Nonce)
-	plaintext, err := DecryptAsSender(h(v.EncryptedMessage.EncryptedContent), aliceSeed, nonce)
+	r, err := DecodeRemark(h(v.EncryptedMessage.Remark))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := DecryptAsSender(r, aliceSeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +295,11 @@ func TestConformanceThreadMessage(t *testing.T) {
 	}
 	assertEqual(t, "thread_encrypted", encrypted, h(v.ThreadMessage.EncryptedContent))
 
-	decrypted, err := Decrypt(encrypted, bobScalar, nonce)
+	tr, err := DecodeRemark(h(v.ThreadMessage.Remark))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := Decrypt(tr, bobScalar)
 	if err != nil {
 		t.Fatal(err)
 	}

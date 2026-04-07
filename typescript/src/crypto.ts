@@ -5,14 +5,9 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha";
 import { RistrettoPoint } from "@noble/curves/ed25519";
 import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/abstract/utils";
 import { SampError } from "./error.js";
+import { Remark } from "./wire.js";
 
-const CURVE_ORDER = RistrettoPoint.BASE.toRawBytes().length === 32
-  ? BigInt("7237005577332262213973186563042994240857116359379907606001950938285454250989")
-  : BigInt(0);
-
-// Fallback: get the order from the curve if accessible
 function getCurveOrder(): bigint {
-  // The Ristretto255 group order (same as Ed25519 scalar field order)
   return BigInt("7237005577332262213973186563042994240857116359379907606001950938285454250989");
 }
 
@@ -33,14 +28,11 @@ function divideScalarByCofactor(s: Uint8Array): void {
 
 export function sr25519SigningScalar(seed: Uint8Array): bigint {
   const h = sha512(seed);
-  // Ed25519 clamping
   h[0] &= 248;
   h[31] &= 63;
   h[31] |= 64;
-  // Divide by cofactor (8) - matches schnorrkel's expand_ed25519
   const key = h.slice(0, 32);
   divideScalarByCofactor(key);
-  // Interpret as LE scalar (already < l after /8, but mod to be safe)
   const n = bytesToNumberLE(key);
   return mod(n, getCurveOrder());
 }
@@ -62,15 +54,15 @@ function deriveEphemeral(seed: Uint8Array, recipient: Uint8Array, nonce: Uint8Ar
 }
 
 function deriveSealKey(seed: Uint8Array, nonce: Uint8Array): Uint8Array {
-  return hkdfExpand(seed, nonce, new TextEncoder().encode("samp-seal-v1"), 32);
+  return hkdfExpand(seed, nonce, new TextEncoder().encode("samp-seal"), 32);
 }
 
 function deriveSymmetricKey(sharedSecret: Uint8Array, nonce: Uint8Array): Uint8Array {
-  return hkdfExpand(sharedSecret, nonce, new TextEncoder().encode("samp-message-v1"), 32);
+  return hkdfExpand(sharedSecret, nonce, new TextEncoder().encode("samp-message"), 32);
 }
 
 function deriveViewTag(sharedSecret: Uint8Array): number {
-  return hkdfExpand(sharedSecret, undefined, new TextEncoder().encode("samp-view-tag-v1"), 1)[0];
+  return hkdfExpand(sharedSecret, undefined, new TextEncoder().encode("samp-view-tag"), 1)[0];
 }
 
 function scalarFromBytes(b: Uint8Array): bigint {
@@ -90,10 +82,10 @@ function xorBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 function scalarToBytes32(s: bigint): Uint8Array {
-  const bytes = numberToBytesLE(s, 32);
-  return bytes;
+  return numberToBytesLE(s, 32);
 }
 
+/** Encrypt plaintext for a single recipient. AAD = sealed_to. */
 export function encrypt(
   plaintext: Uint8Array,
   recipientPub: Uint8Array,
@@ -109,7 +101,7 @@ export function encrypt(
   const sealedTo = xorBytes(recipientPub, sealKey);
   const symKey = deriveSymmetricKey(sharedSecret, nonce);
 
-  const cipher = chacha20poly1305(symKey, nonce);
+  const cipher = chacha20poly1305(symKey, nonce, sealedTo);
   const ciphertextWithTag = cipher.encrypt(plaintext);
 
   const out = new Uint8Array(ENCRYPTED_OVERHEAD + plaintext.length);
@@ -119,15 +111,13 @@ export function encrypt(
   return out;
 }
 
-export function decrypt(
-  content: Uint8Array,
-  signingScalar: bigint,
-  nonce: Uint8Array,
-): Uint8Array {
-  if (content.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
+export function decrypt(remark: Remark, signingScalar: bigint): Uint8Array {
+  ensureOneToOneRemark(remark);
+  const content = remark.content;
   const sharedSecret = ecdhSharedSecret(signingScalar, content.slice(0, 32));
-  const symKey = deriveSymmetricKey(sharedSecret, nonce);
-  const cipher = chacha20poly1305(symKey, nonce);
+  const sealedTo = content.slice(32, 64);
+  const symKey = deriveSymmetricKey(sharedSecret, remark.nonce);
+  const cipher = chacha20poly1305(symKey, remark.nonce, sealedTo);
   try {
     return cipher.decrypt(content.slice(64));
   } catch {
@@ -135,26 +125,28 @@ export function decrypt(
   }
 }
 
-export function decryptAsSender(
-  content: Uint8Array,
-  senderSeed: Uint8Array,
-  nonce: Uint8Array,
-): Uint8Array {
-  if (content.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
-  const sealKey = deriveSealKey(senderSeed, nonce);
+export function decryptAsSender(remark: Remark, senderSeed: Uint8Array): Uint8Array {
+  ensureOneToOneRemark(remark);
+  const content = remark.content;
+  const sealKey = deriveSealKey(senderSeed, remark.nonce);
   const recipient = xorBytes(content.slice(32, 64), sealKey);
 
-  const ephBytes = deriveEphemeral(senderSeed, recipient, nonce);
+  const ephBytes = deriveEphemeral(senderSeed, recipient, remark.nonce);
   const ephScalar = scalarFromBytes(ephBytes);
   const sharedSecret = ecdhSharedSecret(ephScalar, recipient);
 
-  const symKey = deriveSymmetricKey(sharedSecret, nonce);
-  const cipher = chacha20poly1305(symKey, nonce);
+  const symKey = deriveSymmetricKey(sharedSecret, remark.nonce);
+  const sealedTo = content.slice(32, 64);
+  const cipher = chacha20poly1305(symKey, remark.nonce, sealedTo);
   try {
     return cipher.decrypt(content.slice(64));
   } catch {
     throw new SampError("decryption failed");
   }
+}
+
+function ensureOneToOneRemark(remark: Remark): void {
+  if (remark.content.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
 }
 
 export function computeViewTag(
@@ -168,27 +160,20 @@ export function computeViewTag(
   return deriveViewTag(sharedSecret);
 }
 
-export function checkViewTag(
-  signingScalar: bigint,
-  encryptedContent: Uint8Array,
-): number {
-  if (encryptedContent.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
-  const sharedSecret = ecdhSharedSecret(signingScalar, encryptedContent.slice(0, 32));
+export function checkViewTag(remark: Remark, signingScalar: bigint): number {
+  ensureOneToOneRemark(remark);
+  const sharedSecret = ecdhSharedSecret(signingScalar, remark.content.slice(0, 32));
   return deriveViewTag(sharedSecret);
 }
 
-export function unsealRecipient(
-  encryptedContent: Uint8Array,
-  senderSeed: Uint8Array,
-  nonce: Uint8Array,
-): Uint8Array {
-  if (encryptedContent.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
-  const sealKey = deriveSealKey(senderSeed, nonce);
-  return xorBytes(encryptedContent.slice(32, 64), sealKey);
+export function unsealRecipient(remark: Remark, senderSeed: Uint8Array): Uint8Array {
+  ensureOneToOneRemark(remark);
+  const sealKey = deriveSealKey(senderSeed, remark.nonce);
+  return xorBytes(remark.content.slice(32, 64), sealKey);
 }
 
 const GROUP_EPH_INFO = new TextEncoder().encode("samp-group-eph");
-const KEY_WRAP_INFO = new TextEncoder().encode("samp-key-wrap-v1");
+const KEY_WRAP_INFO = new TextEncoder().encode("samp-key-wrap");
 const CAPSULE_SIZE = 33;
 
 export function deriveGroupEphemeral(senderSeed: Uint8Array, nonce: Uint8Array): Uint8Array {

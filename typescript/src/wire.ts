@@ -112,11 +112,12 @@ export function encodeGroup(
 export function decodeRemark(data: Uint8Array): Remark {
   if (data.length === 0) throw new SampError("insufficient data");
   const ct = data[0];
-  if ((ct & 0xf0) !== SAMP_VERSION) throw new SampError(`unsupported version: 0x${ct.toString(16)}`);
+  if ((ct & 0xf0) !== SAMP_VERSION) {
+    throw new SampError(`unsupported version: 0x${(ct & 0xf0).toString(16).padStart(2, "0")}`);
+  }
   const lower = ct & 0x0f;
 
   if (lower === 0x00) {
-    // Public message
     if (data.length < 33) throw new SampError("insufficient data for public message");
     const body = data.slice(33);
     new TextDecoder("utf-8", { fatal: true }).decode(body);
@@ -130,7 +131,6 @@ export function decodeRemark(data: Uint8Array): Remark {
   }
 
   if (lower === 0x01 || lower === 0x02) {
-    // Encrypted / Thread
     if (data.length < 14) throw new SampError("insufficient data for encrypted message");
     return {
       contentType: ct,
@@ -142,7 +142,6 @@ export function decodeRemark(data: Uint8Array): Remark {
   }
 
   if (lower === 0x03) {
-    // Channel creation
     return {
       contentType: ct,
       recipient: new Uint8Array(32),
@@ -153,7 +152,6 @@ export function decodeRemark(data: Uint8Array): Remark {
   }
 
   if (lower === 0x04) {
-    // Channel message
     if (data.length < 19) throw new SampError("insufficient data for channel message");
     const ref_ = decodeBlockRef(data, 1);
     const recipient = new Uint8Array(32);
@@ -170,14 +168,13 @@ export function decodeRemark(data: Uint8Array): Remark {
   }
 
   if (lower === 0x05) {
-    // Group message
     if (data.length < 45) throw new SampError("insufficient data for group message");
     return {
       contentType: ct,
       recipient: new Uint8Array(32),
       viewTag: 0,
       nonce: data.slice(1, 13),
-      content: data.slice(13), // eph_pubkey + capsules + ciphertext
+      content: data.slice(13),
     };
   }
 

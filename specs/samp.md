@@ -1,6 +1,6 @@
 # SAMP: Substrate Account Messaging Protocol
 
-Version 1.0, 2026-04-06
+Version 1.0, 2026-04-07
 
 ## Abstract
 
@@ -16,7 +16,7 @@ All multi-byte integers are little-endian. Hexadecimal values are prefixed with 
 
 ## 1. Protocol Byte
 
-The first byte of every SAMP remark encodes the protocol version and content type: upper nibble = version, lower nibble = type. The upper nibble MUST be `0x1` for this specification (SAMP v1). The lower nibble determines the content type:
+The first byte of every SAMP remark encodes the protocol version and content type: upper nibble = major version, lower nibble = content type. The upper nibble MUST be `0x1` for this specification (SAMP v1). The lower nibble determines the content type:
 
 | Byte | Type | Encrypted |
 |---|---|---|
@@ -26,12 +26,23 @@ The first byte of every SAMP remark encodes the protocol version and content typ
 | `0x13` | Channel creation | No |
 | `0x14` | Channel message | No |
 | `0x15` | Group message | Yes (multi-recipient) |
-| `0x16`-`0x17` | Reserved (SAMP spec) | -- |
+| `0x16` | Reserved for Forward Secret 1:1 Encryption (design pending) | -- |
+| `0x17` | Reserved (SAMP spec, unallocated) | -- |
 | `0x18`-`0x1F` | Application-defined | -- |
 
-Types `0x0`-`0x7` (lower nibble) are reserved for the SAMP specification. Types `0x8`-`0xF` are open for applications to define. An application MAY assign custom semantics to any byte in the `0x18`-`0x1F` range without coordinating with the SAMP specification. SAMP implementations that encounter an unrecognized type in either range MUST skip the remark.
+Lower-nibble values `0x0`-`0x7` are reserved for the SAMP specification. Values `0x8`-`0xF` are open for applications to define. An application MAY assign custom semantics to any byte in the `0x18`-`0x1F` range without coordinating with the SAMP specification. SAMP implementations that encounter an unrecognized type in either range MUST skip the remark.
 
 A client MUST check `remark[0] & 0xF0 == 0x10` to identify SAMP v1 remarks. Non-matching remarks MUST be skipped.
+
+### 1.1 Versioning
+
+SAMP has two distinct version namespaces.
+
+The **wire major version** is the upper nibble of `remark[0]` and is the only version field encoded on the wire. It changes only for wire-incompatible cryptographic or structural changes — for example, modifying the AEAD AAD shape, changing a primitive, or restructuring the byte layout. Future major bumps follow a dual-read pattern: a v2 client would read both `0x1*` and `0x2*` and write only `0x2*`, ensuring v1 messages remain readable forever.
+
+The **SDK package version** follows SemVer (MAJOR.MINOR.PATCH) where MAJOR tracks the wire major version, MINOR bumps when a new content type is allocated within the same wire major (for example, adding `0x16` for Forward Secret 1:1 Encryption would bump the SDKs to 1.1.0), and PATCH bumps for bug fixes and ergonomic improvements that are wire-invisible. The wire format intentionally encodes only the wire major version; minor and patch evolution happens via lower-nibble content type allocations and SDK releases respectively.
+
+This is the entire reason the protocol byte is split into an upper nibble (breaking) and a lower nibble (additive). The 4-bit upper nibble allows 15 future major versions; the 4-bit lower nibble allows 8 SAMP-spec content types and 8 application-defined content types per major.
 
 ## 2. Block Reference
 
@@ -67,7 +78,7 @@ The body MUST be valid UTF-8. Body length = remark length - 33.
 | 46 | 32 | `sealed_to` (XOR-masked recipient) |
 | 78 | var | `ciphertext` (ChaCha20-Poly1305 output including 16-byte auth tag) |
 
-The `view_tag` is a 1-byte recipient filter derived from the ECDH shared secret (Section 5.3). The `nonce` MUST be unique per sender. The `sealed_to` field enables sender self-decryption (Section 5.8). Encryption overhead: 80 bytes (32 + 32 + 16).
+The `view_tag` is a 1-byte recipient filter derived from the ECDH shared secret (Section 5.3). The `nonce` MUST be unique per sender. The `sealed_to` field enables sender self-decryption (Section 5.8) and is bound into the AEAD AAD (Section 5.6) so the wire-declared recipient is authenticated against the auth tag. Encryption overhead: 80 bytes (32 + 32 + 16).
 
 ### 3.3 Thread Message (`0x12`)
 
@@ -214,7 +225,7 @@ The result is a 32-byte compressed Ristretto255 point used as input key material
 A 1-byte filter that lets recipients cheaply reject messages not addressed to them:
 
 ```
-tag = HKDF(salt=None, ikm=shared_secret, info="samp-view-tag-v1", len=1)[0]
+tag = HKDF(salt=None, ikm=shared_secret, info="samp-view-tag", len=1)[0]
 ```
 
 The `shared_secret` is the ECDH result between the recipient's scalar and the sender's ephemeral public key. False positive rate: 1/256.
@@ -244,10 +255,10 @@ eph_pubkey = eph_scalar * G
 All SAMP content encryption uses ChaCha20-Poly1305 AEAD:
 
 ```
-ciphertext || auth_tag = ChaCha20-Poly1305(key, nonce, aad=None, plaintext)
+ciphertext || auth_tag = ChaCha20-Poly1305(key, nonce, aad, plaintext)
 ```
 
-The key is 32 bytes. The nonce is 12 bytes. The auth tag is 16 bytes appended to the ciphertext.
+The key is 32 bytes. The nonce is 12 bytes. The auth tag is 16 bytes appended to the ciphertext. The `aad` (additional authenticated data) is per-context (Sections 5.6, 5.7).
 
 ### 5.6 1:1 Encryption (`0x11`/`0x12`)
 
@@ -255,17 +266,19 @@ Given plaintext `P`, recipient public key `R`, nonce `N`, sender seed `S`:
 
 1. Derive ephemeral per Section 5.4 (1:1 mode): `eph_scalar`, `eph_pubkey`
 2. `shared = ECDH(eph_scalar, R)` (Section 5.2)
-3. `seal_key = HKDF(salt=N, ikm=S, info="samp-seal-v1", len=32)`
+3. `seal_key = HKDF(salt=N, ikm=S, info="samp-seal", len=32)`
 4. `sealed_to = R XOR seal_key`
-5. `sym_key = HKDF(salt=N, ikm=shared, info="samp-message-v1", len=32)`
-6. `ciphertext || auth_tag = ChaCha20-Poly1305(sym_key, N, P)` (Section 5.5)
+5. `sym_key = HKDF(salt=N, ikm=shared, info="samp-message", len=32)`
+6. `ciphertext || auth_tag = ChaCha20-Poly1305(sym_key, N, aad=sealed_to, P)` (Section 5.5)
 7. Output: `eph_pubkey(32) || sealed_to(32) || ciphertext || auth_tag(16)`
+
+Binding `sealed_to` into the AEAD AAD authenticates the wire-declared recipient against the auth tag: a sender cannot publish bytes whose ciphertext+tag is valid under one `sealed_to` and replace `sealed_to` with another value without breaking authentication.
 
 **Recipient decryption:**
 
 1. `shared = ECDH(signing_scalar, eph_pubkey)`
-2. `sym_key = HKDF(salt=N, ikm=shared, info="samp-message-v1", len=32)`
-3. Decrypt `ciphertext` with `sym_key` and `N`. Bytes 32..64 (`sealed_to`) are ignored.
+2. `sym_key = HKDF(salt=N, ikm=shared, info="samp-message", len=32)`
+3. Decrypt `ciphertext` with `sym_key`, `N`, and `aad = content[32..64]` (the wire `sealed_to` bytes).
 
 ### 5.7 Multi-Recipient Encryption (`0x15`)
 
@@ -273,20 +286,20 @@ Given plaintext `P`, member public keys `[R_1, ..., R_N]`, nonce `N`, sender see
 
 1. Derive shared ephemeral per Section 5.4 (multi-recipient mode): `eph_scalar`, `eph_pubkey`
 2. Generate random per-message content key `K` (32 bytes, cryptographically secure)
-3. `ciphertext || auth_tag = ChaCha20-Poly1305(K, N, P)` (Section 5.5)
+3. `ciphertext || auth_tag = ChaCha20-Poly1305(K, N, aad=None, P)` (Section 5.5)
 4. For each member `i`:
    a. `shared_i = ECDH(eph_scalar, R_i)` (Section 5.2)
-   b. `view_tag_i = HKDF(salt=None, ikm=shared_i, info="samp-view-tag-v1", len=1)[0]` (Section 5.3)
-   c. `kek_i = HKDF(salt=N, ikm=shared_i, info="samp-key-wrap-v1", len=32)`
+   b. `view_tag_i = HKDF(salt=None, ikm=shared_i, info="samp-view-tag", len=1)[0]` (Section 5.3)
+   c. `kek_i = HKDF(salt=N, ikm=shared_i, info="samp-key-wrap", len=32)`
    d. `wrapped_key_i = K XOR kek_i`
 5. Capsule for member `i`: `view_tag_i(1) || wrapped_key_i(32)` (33 bytes)
 
 **Recipient scanning and decryption:**
 
 1. `shared = ECDH(signing_scalar, eph_pubkey)` (one ECDH operation)
-2. `my_tag = HKDF(salt=None, ikm=shared, info="samp-view-tag-v1", len=1)[0]`
+2. `my_tag = HKDF(salt=None, ikm=shared, info="samp-view-tag", len=1)[0]`
 3. Scan capsule `view_tag` bytes. If no match, skip. (False positive rate per capsule: 1/256)
-4. `kek = HKDF(salt=N, ikm=shared, info="samp-key-wrap-v1", len=32)`
+4. `kek = HKDF(salt=N, ikm=shared, info="samp-key-wrap", len=32)`
 5. `K = wrapped_key XOR kek`
 6. Decrypt `ciphertext` with `K` and `N`.
 
@@ -294,11 +307,11 @@ Given plaintext `P`, member public keys `[R_1, ..., R_N]`, nonce `N`, sender see
 
 **1:1 mode:** The sender recovers the recipient from `sealed_to`, re-derives the ephemeral, and computes the shared secret:
 
-1. `seal_key = HKDF(salt=N, ikm=S, info="samp-seal-v1", len=32)`
+1. `seal_key = HKDF(salt=N, ikm=S, info="samp-seal", len=32)`
 2. `R = sealed_to XOR seal_key`
 3. Derive ephemeral from `S`, `R`, `N` (Section 5.4, 1:1 mode)
 4. `shared = ECDH(eph_scalar, R)`
-5. Decrypt as Section 5.6.
+5. Decrypt as Section 5.6 (`aad = sealed_to`).
 
 **Multi-recipient mode:** The sender re-derives the shared ephemeral from their seed and nonce (Section 5.4, multi-recipient mode), then scans capsules for their own `view_tag` like any other recipient. The sender MUST include themselves as one of the N members.
 
@@ -312,7 +325,7 @@ For each `system.remark_with_event` extrinsic in a block:
 2. If `remark[0] & 0xF0 != 0x10`, skip.
 3. Parse by content type (`remark[0] & 0x0F`).
 4. Sender = extrinsic signer. Timestamp = block timestamp.
-5. For encrypted 1:1 types (`0x11`, `0x12`): compute view tag (Section 5.3). If mismatch and sender is not self, skip. Otherwise decrypt (Section 5.6).
+5. For encrypted 1:1 types (`0x11`/`0x12`): compute view tag (Section 5.3). If mismatch and sender is not self, skip. Otherwise decrypt (Section 5.6) with `aad = content[32..64]`.
 6. For group messages (`0x15`): compute `shared = ECDH(signing_scalar, eph_pubkey)`. Derive `my_tag`. Scan capsule view tags. If no match and sender is not self, skip. Otherwise unwrap content key, decrypt (Section 5.7). If `group_ref = (0, 0)`, parse body as group metadata (root message). Otherwise, parse body as UTF-8 text.
 
 **Capsule/ciphertext boundary:** If the recipient has previously decrypted a message from this group, they know the member count N and can parse directly. Otherwise, after unwrapping the content key from a matching capsule at index `j`, the recipient tries AEAD decryption at boundaries `(j+1)*33`, `(j+2)*33`, etc. until authentication succeeds.
@@ -333,6 +346,7 @@ The 12-byte nonce in encrypted messages MUST be unique per sender. Reuse breaks 
 |---|---|
 | Sender authenticity | Substrate extrinsic signature (sr25519) |
 | Message integrity | AEAD auth tag (encrypted) or extrinsic signature (public) |
+| Wire-declared recipient binding (1:1) | AEAD AAD = `sealed_to`; declared recipient is authenticated against the tag |
 | Recipient privacy (1:1) | 1-byte view tag; observer cannot determine recipient |
 | Recipient privacy (group) | N view tags (opaque); observer cannot determine members or group size |
 | Content confidentiality | ChaCha20-Poly1305 (encrypted types only) |
@@ -343,7 +357,13 @@ The ephemeral scalar for 1:1 messages is deterministic: `HKDF(seed, recipient ||
 
 All messages are permanently on-chain. Encrypted messages cannot be deleted. A compromised seed exposes all past messages to or from that account.
 
-SAMP v0.2 uses Ristretto255 for all asymmetric operations. This does not provide post-quantum security. Encrypted messages on-chain are vulnerable to harvest-now-decrypt-later attacks by a future quantum adversary. This exposure is inherited from Substrate's sr25519 signature scheme.
+SAMP uses Ristretto255 for all asymmetric operations. This does not provide post-quantum security. Encrypted messages on-chain are vulnerable to harvest-now-decrypt-later attacks by a future quantum adversary. This exposure is inherited from Substrate's sr25519 signature scheme.
+
+### 7.1 Known Trade-offs
+
+- **Key reuse for signing and ECDH.** SAMP uses the same expanded sr25519 scalar for both extrinsic signing and Ristretto255 ECDH key agreement. No public attack against this reuse exists, but it is a non-standard cryptographic property: a future cross-protocol attack against sr25519 would compromise SAMP's encryption confidentiality, not just signature forgery. SAMP makes this trade-off so that the recipient's encryption identity is equal to their SS58 address — encrypting to someone requires zero coordination beyond knowing their account.
+- **View-tag oracle.** The 1-byte view tag leaks 8 bits per message about the candidate recipient set. An observer running every account's scalar against every view tag learns nothing more than they would by trial-decrypting -- but a targeted observer with a known scalar can quickly partition messages. Recipient unlinkability across messages is limited.
+- **Nonce reuse is catastrophic.** AEAD nonce reuse breaks ChaCha20-Poly1305 confidentiality. Senders MUST use a cryptographically secure RNG for the 12-byte nonce.
 
 ## 8. Constants
 
@@ -351,11 +371,11 @@ SAMP v0.2 uses Ristretto255 for all asymmetric operations. This does not provide
 |---|---|---|
 | `SAMP_VERSION` | `0x10` | Protocol version nibble |
 | `CAPSULE_SIZE` | 33 | Bytes per capsule in group messages |
-| `MESSAGE_KEY_INFO` | `"samp-message-v1"` | Symmetric key derivation (1:1) |
-| `VIEW_TAG_INFO` | `"samp-view-tag-v1"` | View tag derivation |
-| `SEAL_INFO` | `"samp-seal-v1"` | Sealed recipient key derivation |
+| `MESSAGE_KEY_INFO` | `"samp-message"` | Symmetric key derivation (1:1) |
+| `VIEW_TAG_INFO` | `"samp-view-tag"` | View tag derivation |
+| `SEAL_INFO` | `"samp-seal"` | Sealed recipient key derivation |
 | `GROUP_EPH_INFO` | `"samp-group-eph"` | Group ephemeral derivation |
-| `KEY_WRAP_INFO` | `"samp-key-wrap-v1"` | Key wrapping in capsules |
+| `KEY_WRAP_INFO` | `"samp-key-wrap"` | Key wrapping in capsules |
 | `CHANNEL_NAME_MAX` | 32 | Maximum channel/group name (bytes) |
 | `CHANNEL_DESC_MAX` | 128 | Maximum channel/group description (bytes) |
 
@@ -377,9 +397,13 @@ Group encryption overhead per member: 33 bytes (view_tag 1 + wrapped_key 32) + s
 
 ## Appendix B: Reference Implementations
 
-| Language | Path |
-|---|---|
-| Rust | `rust/` (samp crate) |
-| Python | `python/samp/` |
-| Go | `go/` |
-| TypeScript | `typescript/` (@samp-org/samp) |
+| Language | Path | Version |
+|---|---|---|
+| Rust | `rust/` (samp crate) | 1.0.0 |
+| Python | `python/samp/` | 1.0.0 |
+| Go | `go/` | 1.0.0 |
+| TypeScript | `typescript/` (@samp-org/samp) | 1.0.0 |
+
+## Changelog
+
+**Version 1.0, 2026-04-07** -- Initial public release. Defines the upper-nibble version field, content types `0x10`-`0x15`, 1:1 and multi-recipient encryption (Ristretto255 ECDH + HKDF-SHA256 + ChaCha20-Poly1305 with `sealed_to` bound into the AEAD AAD for `0x11`/`0x12`), DAG threading via `reply_to`/`continues` block references, and channel/group identity rooted at on-chain extrinsic position.

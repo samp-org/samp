@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use serde::Deserialize;
@@ -32,7 +34,6 @@ struct PublicMsgVec {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct EncryptedMsgVec {
     nonce: String,
     plaintext: String,
@@ -49,7 +50,6 @@ struct EncryptedMsgVec {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct ThreadMsgVec {
     nonce: String,
     thread_ref: [u32; 2],
@@ -62,7 +62,6 @@ struct ThreadMsgVec {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct SenderDecryptVec {
     seal_key: String,
     unsealed_recipient: String,
@@ -88,7 +87,6 @@ struct ChannelCreateVec {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct GroupMsgVec {
     nonce: String,
     members: Vec<String>,
@@ -120,7 +118,6 @@ struct NegativeCases {
 struct TestVectors {
     alice: KeypairVec,
     bob: KeypairVec,
-    #[allow(dead_code)]
     charlie: KeypairVec,
     public_message: PublicMsgVec,
     encrypted_message: EncryptedMsgVec,
@@ -198,7 +195,7 @@ fn conformance_encrypted_encode() {
     let vt = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &nonce).unwrap();
     assert_eq!(vt, v.encrypted_message.view_tag);
 
-    let remark = encode_encrypted(SAMP_VERSION | 0x01, vt, &nonce, &content);
+    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &content);
     assert_eq!(remark, h(&v.encrypted_message.remark));
 }
 
@@ -226,9 +223,9 @@ fn conformance_encrypted_recipient_decrypt() {
     let v = load_vectors();
     let bob_seed = h32(&v.bob.seed);
     let bob_scalar = encryption::sr25519_signing_scalar(&bob_seed);
-    let nonce = h12(&v.encrypted_message.nonce);
-    let content = h(&v.encrypted_message.encrypted_content);
-    let plaintext = encryption::decrypt(&content, &bob_scalar, &nonce).unwrap();
+    let remark_bytes = h(&v.encrypted_message.remark);
+    let parsed = decode_remark(&remark_bytes).unwrap();
+    let plaintext = encryption::decrypt(&parsed, &bob_scalar).unwrap();
     assert_eq!(plaintext, h(&v.encrypted_message.plaintext));
 }
 
@@ -238,9 +235,9 @@ fn conformance_encrypted_recipient_decrypt() {
 fn conformance_sender_self_decrypt() {
     let v = load_vectors();
     let alice_seed = h32(&v.alice.seed);
-    let nonce = h12(&v.encrypted_message.nonce);
-    let content = h(&v.encrypted_message.encrypted_content);
-    let plaintext = encryption::decrypt_as_sender(&content, &alice_seed, &nonce).unwrap();
+    let remark_bytes = h(&v.encrypted_message.remark);
+    let parsed = decode_remark(&remark_bytes).unwrap();
+    let plaintext = encryption::decrypt_as_sender(&parsed, &alice_seed).unwrap();
     assert_eq!(plaintext, h(&v.sender_self_decryption.plaintext));
 
     // Verify the unsealed recipient is Bob
@@ -287,8 +284,10 @@ fn conformance_thread_message() {
         encryption::encrypt(&thread_plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();
     assert_eq!(encrypted, h(&v.thread_message.encrypted_content));
 
-    // Decrypt and verify
-    let decrypted = encryption::decrypt(&encrypted, &bob_scalar, &nonce).unwrap();
+    let vt = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &nonce).unwrap();
+    let remark_bytes = encode_encrypted(CONTENT_TYPE_THREAD, vt, &nonce, &encrypted);
+    let parsed_remark = decode_remark(&remark_bytes).unwrap();
+    let decrypted = encryption::decrypt(&parsed_remark, &bob_scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(&decrypted).unwrap();
     assert_eq!(thread.block, th[0]);
     assert_eq!(reply_to.block, rt[0]);

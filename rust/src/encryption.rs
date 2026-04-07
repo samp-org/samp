@@ -1,6 +1,6 @@
 use crate::error::SampError;
-use crate::wire::CAPSULE_SIZE;
-use chacha20poly1305::aead::{Aead, KeyInit};
+use crate::wire::{Remark, CAPSULE_SIZE};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -13,11 +13,11 @@ use zeroize::Zeroize;
 /// Ephemeral public key, capsules, ciphertext — returned by group encryption.
 pub type GroupEncrypted = ([u8; 32], Vec<u8>, Vec<u8>);
 
-const MESSAGE_KEY_INFO: &[u8] = b"samp-message-v1";
-const VIEW_TAG_INFO: &[u8] = b"samp-view-tag-v1";
-const SEAL_INFO: &[u8] = b"samp-seal-v1";
+const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
+const VIEW_TAG_INFO: &[u8] = b"samp-view-tag";
+const SEAL_INFO: &[u8] = b"samp-seal";
 const GROUP_EPH_INFO: &[u8] = b"samp-group-eph";
-const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap-v1";
+const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap";
 
 /// Encrypted 1:1 content overhead: ephemeral(32) + sealed_to(32) + auth_tag(16) = 80 bytes.
 pub const ENCRYPTED_OVERHEAD: usize = 80;
@@ -101,27 +101,32 @@ pub fn compute_view_tag(
     Ok(derive_view_tag(&shared))
 }
 
-/// Verify the view tag for an inbound 1:1 message.
-pub fn check_view_tag(signing_scalar: &Scalar, encrypted_content: &[u8]) -> Result<u8, SampError> {
-    if encrypted_content.len() < ENCRYPTED_OVERHEAD {
+fn ensure_one_to_one_remark(remark: &Remark) -> Result<(), SampError> {
+    if !matches!(
+        remark.content_type,
+        crate::wire::ContentType::Encrypted | crate::wire::ContentType::Thread
+    ) {
+        return Err(SampError::DecryptionFailed);
+    }
+    if remark.content.len() < ENCRYPTED_OVERHEAD {
         return Err(SampError::InsufficientData);
     }
-    let eph_pubkey = CompressedRistretto(encrypted_content[..32].try_into().unwrap());
+    Ok(())
+}
+
+/// Verify the view tag for an inbound 1:1 message.
+pub fn check_view_tag(remark: &Remark, signing_scalar: &Scalar) -> Result<u8, SampError> {
+    ensure_one_to_one_remark(remark)?;
+    let eph_pubkey = CompressedRistretto(remark.content[..32].try_into().unwrap());
     let shared = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
     Ok(derive_view_tag(&shared))
 }
 
 /// Recover the recipient pubkey from sealed_to (sender self-decryption).
-pub fn unseal_recipient(
-    encrypted_content: &[u8],
-    sender_seed: &[u8; 32],
-    nonce: &[u8; 12],
-) -> Result<[u8; 32], SampError> {
-    if encrypted_content.len() < ENCRYPTED_OVERHEAD {
-        return Err(SampError::InsufficientData);
-    }
-    let sealed_to: [u8; 32] = encrypted_content[32..64].try_into().unwrap();
-    let key = derive_seal_key(sender_seed, nonce);
+pub fn unseal_recipient(remark: &Remark, sender_seed: &[u8; 32]) -> Result<[u8; 32], SampError> {
+    ensure_one_to_one_remark(remark)?;
+    let sealed_to: [u8; 32] = remark.content[32..64].try_into().unwrap();
+    let key = derive_seal_key(sender_seed, &remark.nonce);
     let mut recipient = [0u8; 32];
     for i in 0..32 {
         recipient[i] = sealed_to[i] ^ key[i];
@@ -131,6 +136,7 @@ pub fn unseal_recipient(
 
 /// Encrypt plaintext for a single recipient (1:1).
 /// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
+/// The AEAD AAD binds `sealed_to` into the auth tag (Section 5.6).
 pub fn encrypt(
     plaintext: &[u8],
     recipient_pubkey: &CompressedRistretto,
@@ -148,7 +154,13 @@ pub fn encrypt(
     let mut sym_key = derive_symmetric_key(&shared_secret, nonce);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let ciphertext_with_tag = cipher
-        .encrypt(Nonce::from_slice(nonce), plaintext)
+        .encrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: plaintext,
+                aad: &sealed_to,
+            },
+        )
         .map_err(|_| SampError::DecryptionFailed)?;
 
     let mut content = Vec::with_capacity(ENCRYPTED_OVERHEAD + plaintext.len());
@@ -164,20 +176,22 @@ pub fn encrypt(
 }
 
 /// Decrypt as the recipient (1:1).
-pub fn decrypt(
-    content: &[u8],
-    signing_scalar: &Scalar,
-    nonce: &[u8; 12],
-) -> Result<Vec<u8>, SampError> {
-    if content.len() < ENCRYPTED_OVERHEAD {
-        return Err(SampError::InsufficientData);
-    }
+pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, SampError> {
+    ensure_one_to_one_remark(remark)?;
+    let content = remark.content.as_slice();
     let eph_pubkey = CompressedRistretto(content[..32].try_into().unwrap());
+    let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
     let mut shared_secret = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
-    let mut sym_key = derive_symmetric_key(&shared_secret, nonce);
+    let mut sym_key = derive_symmetric_key(&shared_secret, &remark.nonce);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
-        .decrypt(Nonce::from_slice(nonce), &content[64..])
+        .decrypt(
+            Nonce::from_slice(&remark.nonce),
+            Payload {
+                msg: &content[64..],
+                aad: &sealed_to,
+            },
+        )
         .map_err(|_| SampError::DecryptionFailed);
     shared_secret.zeroize();
     sym_key.zeroize();
@@ -185,24 +199,25 @@ pub fn decrypt(
 }
 
 /// Decrypt as the sender (1:1 self-decryption via sealed_to + deterministic ephemeral).
-pub fn decrypt_as_sender(
-    content: &[u8],
-    sender_seed: &[u8; 32],
-    nonce: &[u8; 12],
-) -> Result<Vec<u8>, SampError> {
-    if content.len() < ENCRYPTED_OVERHEAD {
-        return Err(SampError::InsufficientData);
-    }
+pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<u8>, SampError> {
+    ensure_one_to_one_remark(remark)?;
+    let content = remark.content.as_slice();
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
-    let mut recipient_bytes = seal_recipient(&sealed_to, sender_seed, nonce);
+    let mut recipient_bytes = seal_recipient(&sealed_to, sender_seed, &remark.nonce);
     let recipient_pubkey = CompressedRistretto(recipient_bytes);
-    let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, nonce);
+    let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, &remark.nonce);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let mut shared_secret = ecdh_shared_secret(&eph_scalar, &recipient_pubkey)?;
-    let mut sym_key = derive_symmetric_key(&shared_secret, nonce);
+    let mut sym_key = derive_symmetric_key(&shared_secret, &remark.nonce);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
-        .decrypt(Nonce::from_slice(nonce), &content[64..])
+        .decrypt(
+            Nonce::from_slice(&remark.nonce),
+            Payload {
+                msg: &content[64..],
+                aad: &sealed_to,
+            },
+        )
         .map_err(|_| SampError::DecryptionFailed);
     recipient_bytes.zeroize();
     eph_bytes.zeroize();
@@ -257,7 +272,6 @@ pub fn build_capsules(
         let mut shared = match ecdh_shared_secret(eph_scalar, &point) {
             Ok(s) => s,
             Err(_) => {
-                // Invalid pubkey -- write zero capsule (recipient won't match)
                 out.extend_from_slice(&[0u8; CAPSULE_SIZE]);
                 continue;
             }
@@ -274,7 +288,6 @@ pub fn build_capsules(
 }
 
 /// Scan capsules for a matching view tag. Returns the unwrapped content key on match.
-/// `data` is the bytes after eph_pubkey: capsules(33*N) + ciphertext.
 pub fn scan_capsules(
     data: &[u8],
     eph_pubkey: &CompressedRistretto,
@@ -285,7 +298,6 @@ pub fn scan_capsules(
     let my_tag = derive_view_tag(&shared);
     let mut kek = derive_key_wrap(&shared, nonce);
 
-    // Scan 33-byte capsule slots
     let mut offset = 0;
     let mut idx = 0;
     while offset + CAPSULE_SIZE <= data.len() {
@@ -316,7 +328,6 @@ pub fn encrypt_for_group(
     let eph_scalar = derive_group_ephemeral(sender_seed, nonce);
     let eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
 
-    // Random per-message content key
     let mut content_key = [0u8; 32];
     getrandom::fill(&mut content_key).map_err(|_| SampError::DecryptionFailed)?;
 
@@ -333,8 +344,6 @@ pub fn encrypt_for_group(
 
 /// Decrypt a group message. `content` is everything after the nonce in the remark:
 /// eph_pubkey(32) + capsules(33*N) + ciphertext.
-/// If `known_member_count` is provided, uses it for the capsule/ciphertext boundary.
-/// Otherwise, uses trial AEAD decryption at successive 33-byte boundaries.
 pub fn decrypt_from_group(
     content: &[u8],
     my_scalar: &Scalar,
@@ -347,14 +356,12 @@ pub fn decrypt_from_group(
     let eph_pubkey = CompressedRistretto(content[..32].try_into().unwrap());
     let after_eph = &content[32..];
 
-    // Find our capsule and get the content key
     let (capsule_idx, mut content_key) = scan_capsules(after_eph, &eph_pubkey, my_scalar, nonce)
         .ok_or(SampError::DecryptionFailed)?;
 
     let cipher = ChaCha20Poly1305::new((&content_key).into());
 
     if let Some(n) = known_member_count {
-        // Known boundary
         let ct_start = n * CAPSULE_SIZE;
         if ct_start > after_eph.len() {
             content_key.zeroize();
@@ -367,9 +374,8 @@ pub fn decrypt_from_group(
         return result;
     }
 
-    // Trial AEAD: try boundaries from capsule_idx+1 upward
     let min_n = capsule_idx + 1;
-    let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE; // need at least 16 bytes for auth_tag
+    let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE;
     for n in min_n..=max_n {
         let ct_start = n * CAPSULE_SIZE;
         if ct_start >= after_eph.len() {

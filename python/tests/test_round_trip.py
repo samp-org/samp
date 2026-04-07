@@ -4,7 +4,6 @@ import pytest
 import samp_crypto
 
 from samp import (
-    Remark,
     SampError,
     decode_remark,
     decrypt,
@@ -43,6 +42,7 @@ def test_public_message_roundtrip():
     pub_b = samp_crypto.public_from_seed(SEED_B)
     body = b"Hello Bob!"
     remark = encode_public(pub_b, body)
+    assert remark[0] == CONTENT_TYPE_PUBLIC
     parsed = decode_remark(remark)
     assert parsed.content_type == CONTENT_TYPE_PUBLIC
     assert parsed.recipient == pub_b
@@ -64,15 +64,19 @@ def test_encrypted_message_roundtrip():
     assert parsed.view_tag == view_tag
     assert parsed.nonce == nonce
 
-    decrypted = decrypt(parsed.content, scalar_b, parsed.nonce)
+    decrypted = decrypt(parsed, scalar_b)
     assert decrypted == plaintext
+
+
+def test_non_samp_version_rejected():
+    with pytest.raises(SampError):
+        decode_remark(bytes([0x21, 0x00]))
 
 
 def test_encrypted_content_overhead():
     pub_b = samp_crypto.public_from_seed(SEED_B)
     nonce = os.urandom(12)
     content = encrypt(b"nine byte", pub_b, nonce, SEED_A)
-    # ephemeral(32) + sealed_to(32) + plaintext(9) + auth_tag(16) = 89
     assert len(content) == 32 + 32 + 9 + 16
 
 
@@ -80,8 +84,11 @@ def test_sender_self_decryption():
     pub_b = samp_crypto.public_from_seed(SEED_B)
     nonce = os.urandom(12)
     plaintext = b"sender can read this too"
-    encrypted_content = encrypt(plaintext, pub_b, nonce, SEED_A)
-    decrypted = decrypt_as_sender(encrypted_content, SEED_A, nonce)
+    encrypted = encrypt(plaintext, pub_b, nonce, SEED_A)
+    view_tag = compute_view_tag(SEED_A, pub_b, nonce)
+    remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, nonce, encrypted)
+    parsed = decode_remark(remark)
+    decrypted = decrypt_as_sender(parsed, SEED_A)
     assert decrypted == plaintext
 
 
@@ -131,19 +138,10 @@ def test_channel_create_roundtrip():
 
 
 def test_reserved_content_type_rejected():
-    try:
-        decode_remark(bytes([0x15]))
-        assert False, "should have raised"
-    except SampError:
-        pass
-
-
-def test_non_samp_version_rejected():
-    try:
-        decode_remark(bytes([0x21]))
-        assert False, "should have raised"
-    except SampError:
-        pass
+    with pytest.raises(SampError):
+        decode_remark(bytes([0x16]))
+    with pytest.raises(SampError):
+        decode_remark(bytes([0x17]))
 
 
 def test_group_root_message_roundtrip():
@@ -222,11 +220,8 @@ def test_group_non_member_rejected():
     parsed = decode_remark(remark)
 
     eve_scalar = samp_crypto.sr25519_signing_scalar(SEED_C)
-    try:
+    with pytest.raises(Exception):
         decrypt_from_group(parsed.content, eve_scalar, nonce, 2)
-        assert False, "should have raised"
-    except Exception:
-        pass
 
 
 def test_encode_channel_create_name_too_long_returns_error():

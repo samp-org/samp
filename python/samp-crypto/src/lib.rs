@@ -1,4 +1,4 @@
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -9,11 +9,11 @@ use pyo3::prelude::*;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use sha2::Sha256;
 
-const MESSAGE_KEY_INFO: &[u8] = b"samp-message-v1";
-const VIEW_TAG_INFO: &[u8] = b"samp-view-tag-v1";
-const SEAL_INFO: &[u8] = b"samp-seal-v1";
+const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
+const VIEW_TAG_INFO: &[u8] = b"samp-view-tag";
+const SEAL_INFO: &[u8] = b"samp-seal";
 const GROUP_EPH_INFO: &[u8] = b"samp-group-eph";
-const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap-v1";
+const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap";
 const CAPSULE_SIZE: usize = 33;
 
 /// Encrypted content overhead: ephemeral(32) + sealed_to(32) + auth_tag(16) = 80 bytes.
@@ -139,7 +139,12 @@ fn compute_view_tag(sender_seed: &[u8], recipient_pubkey: &[u8], nonce: &[u8]) -
 /// Encrypt plaintext for a recipient using the sender's seed.
 /// Returns: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
 #[pyfunction]
-fn encrypt_content(plaintext: &[u8], recipient_pubkey: &[u8], nonce: &[u8], sender_seed: &[u8]) -> PyResult<Vec<u8>> {
+fn encrypt_content(
+    plaintext: &[u8],
+    recipient_pubkey: &[u8],
+    nonce: &[u8],
+    sender_seed: &[u8],
+) -> PyResult<Vec<u8>> {
     if recipient_pubkey.len() != 32 || nonce.len() != 12 || sender_seed.len() != 32 {
         return Err(err("recipient_pubkey and sender_seed must be 32 bytes, nonce must be 12 bytes"));
     }
@@ -151,25 +156,29 @@ fn encrypt_content(plaintext: &[u8], recipient_pubkey: &[u8], nonce: &[u8], send
         .decompress()
         .ok_or_else(|| err("invalid recipient pubkey"))?;
 
-    // Deterministic ephemeral from sender seed
     let eph_bytes = derive_ephemeral(&seed, &recip, &n);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
 
-    // ECDH shared secret
     let shared = (eph_scalar * recipient_point).compress().to_bytes();
 
-    // Sealed recipient (for sender self-decryption)
     let seal_key = derive_seal_key(&seed, &n);
     let mut sealed_to = [0u8; 32];
     for i in 0..32 {
         sealed_to[i] = recip[i] ^ seal_key[i];
     }
 
-    // Symmetric encryption
     let sym_key = derive_symmetric_key(&shared, &n);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
-    let ct = cipher.encrypt(Nonce::from_slice(&n), plaintext).map_err(|e| err(&e.to_string()))?;
+    let ct = cipher
+        .encrypt(
+            Nonce::from_slice(&n),
+            Payload {
+                msg: plaintext,
+                aad: &sealed_to,
+            },
+        )
+        .map_err(|e| err(&e.to_string()))?;
 
     let mut out = Vec::with_capacity(ENCRYPTED_OVERHEAD + plaintext.len());
     out.extend_from_slice(&eph_pubkey.to_bytes());
@@ -181,7 +190,11 @@ fn encrypt_content(plaintext: &[u8], recipient_pubkey: &[u8], nonce: &[u8], send
 /// Decrypt as the recipient: shared_secret = signing_scalar * ephemeral.
 /// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
 #[pyfunction]
-fn decrypt_content(content: &[u8], signing_scalar: &[u8], nonce: &[u8]) -> PyResult<Vec<u8>> {
+fn decrypt_content(
+    content: &[u8],
+    signing_scalar: &[u8],
+    nonce: &[u8],
+) -> PyResult<Vec<u8>> {
     if signing_scalar.len() != 32 || nonce.len() != 12 {
         return Err(err("signing_scalar must be 32 bytes, nonce must be 12 bytes"));
     }
@@ -193,19 +206,29 @@ fn decrypt_content(content: &[u8], signing_scalar: &[u8], nonce: &[u8]) -> PyRes
         .ok_or_else(|| err("invalid ephemeral pubkey"))?;
     let scalar = Scalar::from_bytes_mod_order(signing_scalar.try_into().unwrap());
     let n: [u8; 12] = nonce.try_into().unwrap();
+    let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
 
     let shared = (scalar * eph_pubkey).compress().to_bytes();
-    // Skip sealed_to (bytes 32..64), decrypt from byte 64
     let sym_key = derive_symmetric_key(&shared, &n);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
-    cipher.decrypt(Nonce::from_slice(&n), &content[64..])
+    cipher
+        .decrypt(
+            Nonce::from_slice(&n),
+            Payload {
+                msg: &content[64..],
+                aad: &sealed_to,
+            },
+        )
         .map_err(|_| err("decryption failed"))
 }
 
 /// Decrypt as the sender: unseal recipient, re-derive ephemeral, compute shared secret.
-/// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
 #[pyfunction]
-fn decrypt_as_sender(content: &[u8], sender_seed: &[u8], nonce: &[u8]) -> PyResult<Vec<u8>> {
+fn decrypt_as_sender(
+    content: &[u8],
+    sender_seed: &[u8],
+    nonce: &[u8],
+) -> PyResult<Vec<u8>> {
     if sender_seed.len() != 32 || nonce.len() != 12 {
         return Err(err("sender_seed must be 32 bytes, nonce must be 12 bytes"));
     }
@@ -215,7 +238,6 @@ fn decrypt_as_sender(content: &[u8], sender_seed: &[u8], nonce: &[u8]) -> PyResu
     let seed: [u8; 32] = sender_seed.try_into().unwrap();
     let n: [u8; 12] = nonce.try_into().unwrap();
 
-    // Unseal recipient pubkey
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
     let seal_key = derive_seal_key(&seed, &n);
     let mut recipient = [0u8; 32];
@@ -226,14 +248,20 @@ fn decrypt_as_sender(content: &[u8], sender_seed: &[u8], nonce: &[u8]) -> PyResu
         .decompress()
         .ok_or_else(|| err("invalid unsealed recipient pubkey"))?;
 
-    // Re-derive ephemeral and compute shared secret
     let eph_bytes = derive_ephemeral(&seed, &recipient, &n);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let shared = (eph_scalar * recipient_point).compress().to_bytes();
 
     let sym_key = derive_symmetric_key(&shared, &n);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
-    cipher.decrypt(Nonce::from_slice(&n), &content[64..])
+    cipher
+        .decrypt(
+            Nonce::from_slice(&n),
+            Payload {
+                msg: &content[64..],
+                aad: &sealed_to,
+            },
+        )
         .map_err(|_| err("decryption failed"))
 }
 

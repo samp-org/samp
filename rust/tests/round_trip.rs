@@ -7,6 +7,7 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, ContentType,
+    CONTENT_TYPE_ENCRYPTED, CONTENT_TYPE_THREAD,
 };
 
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -67,7 +68,7 @@ fn encrypted_message_roundtrip() {
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
-    let remark = encode_encrypted(0x11, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x11);
 
     let decoded = decode_remark(&remark).unwrap();
@@ -77,7 +78,7 @@ fn encrypted_message_roundtrip() {
     assert_eq!(decoded.content, encrypted);
 
     let scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt(&decoded.content, &scalar, &decoded.nonce).unwrap();
+    let decrypted = decrypt(&decoded, &scalar).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 
@@ -106,14 +107,14 @@ fn thread_message_roundtrip() {
     let encrypted = encrypt(&thread_content, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
-    let remark = encode_encrypted(0x12, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(CONTENT_TYPE_THREAD, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x12);
 
     let decoded = decode_remark(&remark).unwrap();
     assert_eq!(decoded.content_type, ContentType::Thread);
 
     let scalar = sr25519_signing_scalar(&bob_seed());
-    let plaintext = decrypt(&decoded.content, &scalar, &decoded.nonce).unwrap();
+    let plaintext = decrypt(&decoded, &scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(&plaintext).unwrap();
     assert_eq!(
         thread,
@@ -213,11 +214,9 @@ fn group_root_message_roundtrip() {
 
     let nonce = [0xAB; 12];
 
-    // Root body: member_count(1) + pubkeys(32*N) + first message
     let mut root_body = encode_group_members(&members);
     root_body.extend_from_slice(b"Welcome to the group!");
 
-    // Root message: group_ref = (0,0)
     let plaintext =
         encode_thread_content(BlockRef::ZERO, BlockRef::ZERO, BlockRef::ZERO, &root_body);
 
@@ -230,22 +229,19 @@ fn group_root_message_roundtrip() {
     assert_eq!(decoded.content_type, ContentType::Group);
     assert_eq!(decoded.nonce, nonce);
 
-    // Bob decrypts
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, Some(3)).unwrap();
     let (group_ref, _reply_to, _continues, body) = decode_group_content(&decrypted).unwrap();
-    assert!(group_ref.is_zero()); // This is a root message
+    assert!(group_ref.is_zero());
     let (member_list, first_msg) = decode_group_members(body).unwrap();
     assert_eq!(member_list.len(), 3);
     assert_eq!(member_list[1], bob_pk);
     assert_eq!(first_msg, b"Welcome to the group!");
 
-    // Eve also decrypts
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
     let decrypted = decrypt_from_group(&decoded.content, &eve_scalar, &nonce, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
 
-    // Alice (sender) self-decrypts
     let alice_scalar = sr25519_signing_scalar(&alice_seed());
     let decrypted = decrypt_from_group(&decoded.content, &alice_scalar, &nonce, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
@@ -279,7 +275,6 @@ fn group_message_roundtrip() {
     let decoded = decode_remark(&remark).unwrap();
     assert_eq!(decoded.content_type, ContentType::Group);
 
-    // Bob decrypts
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, Some(2)).unwrap();
     let (group_ref, reply_to, continues, body) = decode_group_content(&decrypted).unwrap();
@@ -300,7 +295,6 @@ fn group_message_roundtrip() {
     assert!(continues.is_zero());
     assert_eq!(body, b"hello group");
 
-    // Non-member can't decrypt
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
     assert!(decrypt_from_group(&decoded.content, &eve_scalar, &nonce, Some(2)).is_err());
 }
@@ -328,7 +322,6 @@ fn group_trial_aead_without_known_n() {
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
     let decoded = decode_remark(&remark).unwrap();
 
-    // Bob decrypts WITHOUT knowing member count (trial AEAD)
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, None).unwrap();
     let (group_ref, _, _, body) = decode_group_content(&decrypted).unwrap();
@@ -351,13 +344,16 @@ fn encrypted_message_unreadable_by_third_party() {
     let nonce = [0xDD; 12];
     let plaintext = b"secret between Alice and Bob";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
+    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
+    let decoded = decode_remark(&remark).unwrap();
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt(&encrypted, &bob_scalar, &nonce).unwrap();
+    let decrypted = decrypt(&decoded, &bob_scalar).unwrap();
     assert_eq!(decrypted, plaintext);
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    assert!(decrypt(&encrypted, &eve_scalar, &nonce).is_err());
+    assert!(decrypt(&decoded, &eve_scalar).is_err());
 }
 
 #[test]
@@ -365,8 +361,11 @@ fn sender_can_decrypt_own_message() {
     let nonce = [0xFF; 12];
     let plaintext = b"my own message";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
+    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
+    let decoded = decode_remark(&remark).unwrap();
 
-    let decrypted = decrypt_as_sender(&encrypted, &alice_seed(), &nonce).unwrap();
+    let decrypted = decrypt_as_sender(&decoded, &alice_seed()).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 
@@ -382,7 +381,6 @@ fn view_tag_filters_correctly() {
 
 #[test]
 fn content_type_reserved_rejected() {
-    // 0x06 and 0x07 are reserved
     assert!(ContentType::from_byte(0x16).is_err());
     assert!(ContentType::from_byte(0x17).is_err());
 }
@@ -435,7 +433,7 @@ fn channel_content_roundtrip() {
 }
 
 #[test]
-fn v2_channel_message_is_lean() {
+fn channel_message_is_lean() {
     let body = b"Did he use MEV shield?";
     let remark = encode_channel_msg(
         BlockRef {
@@ -461,7 +459,7 @@ fn v2_channel_message_is_lean() {
 
 #[test]
 fn encode_channel_create_name_too_long_returns_error() {
-    let name = "a".repeat(33); // 33 bytes, max is 32
+    let name = "a".repeat(33);
     assert!(samp::encode_channel_create(&name, "desc").is_err());
 }
 
@@ -472,6 +470,6 @@ fn encode_channel_create_empty_name_returns_error() {
 
 #[test]
 fn encode_channel_create_desc_too_long_returns_error() {
-    let desc = "a".repeat(129); // 129 bytes, max is 128
+    let desc = "a".repeat(129);
     assert!(samp::encode_channel_create("name", &desc).is_err());
 }

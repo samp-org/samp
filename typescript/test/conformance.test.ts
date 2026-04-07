@@ -27,7 +27,6 @@ import {
   decryptFromGroup,
   SampError,
 } from "../src/index.js";
-import { bytesToNumberLE } from "@noble/curves/abstract/utils";
 
 const vectors = JSON.parse(
   readFileSync(resolve(__dirname, "../../e2e/test-vectors.json"), "utf-8"),
@@ -114,7 +113,12 @@ describe("encrypted message", () => {
 
   it("remark", () => {
     const content = h(vectors.encrypted_message.encrypted_content);
-    const remark = encodeEncrypted(CONTENT_TYPE_ENCRYPTED, vectors.encrypted_message.view_tag, h(vectors.encrypted_message.nonce), content);
+    const remark = encodeEncrypted(
+      CONTENT_TYPE_ENCRYPTED,
+      vectors.encrypted_message.view_tag,
+      h(vectors.encrypted_message.nonce),
+      content,
+    );
     expect(toHex(remark)).toBe(vectors.encrypted_message.remark.replace("0x", ""));
   });
 
@@ -127,11 +131,8 @@ describe("encrypted message", () => {
 
   it("recipient decrypt", () => {
     const bobScalar = sr25519SigningScalar(h(vectors.bob.seed));
-    const plaintext = decrypt(
-      h(vectors.encrypted_message.encrypted_content),
-      bobScalar,
-      h(vectors.encrypted_message.nonce),
-    );
+    const parsed = decodeRemark(h(vectors.encrypted_message.remark));
+    const plaintext = decrypt(parsed, bobScalar);
     expect(toHex(plaintext)).toBe(vectors.encrypted_message.plaintext.replace("0x", ""));
   });
 });
@@ -140,11 +141,8 @@ describe("encrypted message", () => {
 
 describe("sender self-decryption", () => {
   it("decrypt", () => {
-    const plaintext = decryptAsSender(
-      h(vectors.encrypted_message.encrypted_content),
-      h(vectors.alice.seed),
-      h(vectors.encrypted_message.nonce),
-    );
+    const parsed = decodeRemark(h(vectors.encrypted_message.remark));
+    const plaintext = decryptAsSender(parsed, h(vectors.alice.seed));
     expect(toHex(plaintext)).toBe(vectors.sender_self_decryption.plaintext.replace("0x", ""));
   });
 
@@ -178,7 +176,8 @@ describe("thread message", () => {
     expect(toHex(encrypted)).toBe(vectors.thread_message.encrypted_content.replace("0x", ""));
 
     const bobScalar = sr25519SigningScalar(h(vectors.bob.seed));
-    const decrypted = decrypt(encrypted, bobScalar, h(vectors.thread_message.nonce));
+    const parsed = decodeRemark(h(vectors.thread_message.remark));
+    const decrypted = decrypt(parsed, bobScalar);
     const { thread, replyTo, body } = decodeThreadContent(decrypted);
     expect(thread.block).toBe(th[0]);
     expect(replyTo.block).toBe(rt[0]);

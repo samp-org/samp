@@ -1,4 +1,4 @@
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -139,14 +139,19 @@ fn make_keypair_vec(seed: &[u8; 32]) -> KeypairVec {
 fn main() {
     let alice_seed: [u8; 32] =
         hex::decode("e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a")
-            .unwrap().try_into().unwrap();
+            .unwrap()
+            .try_into()
+            .unwrap();
     let bob_seed: [u8; 32] =
         hex::decode("398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89")
-            .unwrap().try_into().unwrap();
+            .unwrap()
+            .try_into()
+            .unwrap();
     let charlie_seed: [u8; 32] = [0xCC; 32];
-    let nonce: [u8; 12] =
-        hex::decode("a1b2c3d4e5f6a7b8c9d0e1f2")
-            .unwrap().try_into().unwrap();
+    let nonce: [u8; 12] = hex::decode("a1b2c3d4e5f6a7b8c9d0e1f2")
+        .unwrap()
+        .try_into()
+        .unwrap();
 
     let alice_msk = MiniSecretKey::from_bytes(&alice_seed).unwrap();
     let alice_kp = alice_msk.expand_to_keypair(ExpansionMode::Ed25519);
@@ -166,7 +171,6 @@ fn main() {
     // === Encrypted message with full intermediates ===
     let plaintext = b"Hello Bob";
 
-    // Step 1: Derive ephemeral
     let eph_hk = Hkdf::<Sha256>::new(None, &alice_seed);
     let mut eph_info = [0u8; 44];
     eph_info[..32].copy_from_slice(&bob_pub);
@@ -176,65 +180,80 @@ fn main() {
     let eph_scalar = Scalar::from_bytes_mod_order(ephemeral_bytes);
     let eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
 
-    // Step 2: ECDH shared secret
     let bob_point = bob_pubkey.decompress().unwrap();
     let shared_secret = (eph_scalar * bob_point).compress().to_bytes();
 
-    // Step 3: View tag
     let vt_hk = Hkdf::<Sha256>::new(None, &shared_secret);
     let mut vt_buf = [0u8; 1];
-    vt_hk.expand(b"samp-view-tag-v1", &mut vt_buf).unwrap();
+    vt_hk.expand(b"samp-view-tag", &mut vt_buf).unwrap();
     let view_tag = vt_buf[0];
 
-    // Step 4: Seal key and sealed_to
     let seal_hk = Hkdf::<Sha256>::new(Some(&nonce), &alice_seed);
     let mut seal_key = [0u8; 32];
-    seal_hk.expand(b"samp-seal-v1", &mut seal_key).unwrap();
+    seal_hk.expand(b"samp-seal", &mut seal_key).unwrap();
     let mut sealed_to = [0u8; 32];
     for i in 0..32 {
         sealed_to[i] = bob_pub[i] ^ seal_key[i];
     }
 
-    // Step 5: Symmetric key
     let sym_hk = Hkdf::<Sha256>::new(Some(&nonce), &shared_secret);
     let mut symmetric_key = [0u8; 32];
-    sym_hk.expand(b"samp-message-v1", &mut symmetric_key).unwrap();
+    sym_hk.expand(b"samp-message", &mut symmetric_key).unwrap();
 
-    // Step 6: Full encrypt (using the library to get the final bytes)
+    let cipher = ChaCha20Poly1305::new((&symmetric_key).into());
+    let manual_ct = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext.as_slice(),
+                aad: &sealed_to,
+            },
+        )
+        .unwrap();
+
     let encrypted_content = encryption::encrypt(plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();
-    let ciphertext_with_tag = &encrypted_content[64..]; // after eph_pubkey(32) + sealed_to(32)
-
-    // Verify intermediates match library output
+    let ciphertext_with_tag = &encrypted_content[64..];
+    assert_eq!(ciphertext_with_tag, manual_ct.as_slice());
     assert_eq!(&encrypted_content[..32], eph_pubkey.to_bytes());
     assert_eq!(&encrypted_content[32..64], sealed_to);
 
-    // Verify decryption works
-    let decrypted = encryption::decrypt(&encrypted_content, &bob_scalar, &nonce).unwrap();
-    assert_eq!(&decrypted, plaintext);
-
     let enc_remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, &nonce, &encrypted_content);
+
+    let parsed = decode_remark(&enc_remark).unwrap();
+    let decrypted = encryption::decrypt(&parsed, &bob_scalar).unwrap();
+    assert_eq!(&decrypted, plaintext);
 
     // === Thread message ===
     let thread_ref = BlockRef { block: 100, index: 0 };
     let reply_to_ref = BlockRef { block: 101, index: 1 };
     let continues_ref = BlockRef { block: 100, index: 0 };
     let thread_body = b"Re: subnet 7";
-    let thread_plaintext = encode_thread_content(thread_ref, reply_to_ref, continues_ref, thread_body);
-    let thread_nonce: [u8; 12] = hex::decode("b1c2d3e4f5a6b7c8d9e0f1a2").unwrap().try_into().unwrap();
+    let thread_plaintext =
+        encode_thread_content(thread_ref, reply_to_ref, continues_ref, thread_body);
+    let thread_nonce: [u8; 12] = hex::decode("b1c2d3e4f5a6b7c8d9e0f1a2")
+        .unwrap()
+        .try_into()
+        .unwrap();
 
-    let thread_encrypted = encryption::encrypt(&thread_plaintext, &bob_pubkey, &thread_nonce, &alice_seed).unwrap();
-    let thread_view_tag = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &thread_nonce).unwrap();
-    let thread_remark = encode_encrypted(CONTENT_TYPE_THREAD, thread_view_tag, &thread_nonce, &thread_encrypted);
+    let thread_encrypted =
+        encryption::encrypt(&thread_plaintext, &bob_pubkey, &thread_nonce, &alice_seed).unwrap();
+    let thread_view_tag =
+        encryption::compute_view_tag(&alice_seed, &bob_pubkey, &thread_nonce).unwrap();
+    let thread_remark = encode_encrypted(
+        CONTENT_TYPE_THREAD,
+        thread_view_tag,
+        &thread_nonce,
+        &thread_encrypted,
+    );
 
-    // Verify thread decryption
-    let thread_decrypted = encryption::decrypt(&thread_encrypted, &bob_scalar, &thread_nonce).unwrap();
+    let thread_parsed = decode_remark(&thread_remark).unwrap();
+    let thread_decrypted = encryption::decrypt(&thread_parsed, &bob_scalar).unwrap();
     assert_eq!(thread_decrypted, thread_plaintext);
 
     // === Sender self-decryption intermediates ===
-    // Use the encrypted_message content, show the sender decryption path
     let sd_seal_hk = Hkdf::<Sha256>::new(Some(&nonce), &alice_seed);
     let mut sd_seal_key = [0u8; 32];
-    sd_seal_hk.expand(b"samp-seal-v1", &mut sd_seal_key).unwrap();
+    sd_seal_hk.expand(b"samp-seal", &mut sd_seal_key).unwrap();
     let sd_sealed_to: [u8; 32] = encrypted_content[32..64].try_into().unwrap();
     let mut sd_recipient = [0u8; 32];
     for i in 0..32 {
@@ -252,7 +271,7 @@ fn main() {
     let sd_recip_point = CompressedRistretto(sd_recipient).decompress().unwrap();
     let sd_shared = (sd_eph_scalar * sd_recip_point).compress().to_bytes();
 
-    let sd_decrypted = encryption::decrypt_as_sender(&encrypted_content, &alice_seed, &nonce).unwrap();
+    let sd_decrypted = encryption::decrypt_as_sender(&parsed, &alice_seed).unwrap();
     assert_eq!(&sd_decrypted, plaintext);
 
     // === Channel message ===
@@ -274,39 +293,50 @@ fn main() {
     let group_members: Vec<[u8; 32]> = vec![alice_pub, bob_pub, charlie_pub];
     let member_list_encoded = encode_group_members(&group_members);
 
-    // ROOT message plaintext: member_list || body
     let mut root_plaintext = member_list_encoded.clone();
     root_plaintext.extend_from_slice(group_body);
 
-    // Thread content wrapping: thread=ZERO, reply_to=ZERO, continues=ZERO for root
-    let group_inner = encode_thread_content(BlockRef::ZERO, BlockRef::ZERO, BlockRef::ZERO, &root_plaintext);
+    let group_inner =
+        encode_thread_content(BlockRef::ZERO, BlockRef::ZERO, BlockRef::ZERO, &root_plaintext);
 
-    // Deterministic group encryption
     let content_key: [u8; 32] = [0xDD; 32];
-    let eph_scalar = encryption::derive_group_ephemeral(&alice_seed, &group_nonce);
-    let group_eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
-    let group_capsules = encryption::build_capsules(&content_key, &group_members.iter().map(|p| *p).collect::<Vec<_>>(), &eph_scalar, &group_nonce);
+    let group_eph_scalar = encryption::derive_group_ephemeral(&alice_seed, &group_nonce);
+    let group_eph_pubkey = (group_eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
+    let group_capsules = encryption::build_capsules(
+        &content_key,
+        &group_members.iter().copied().collect::<Vec<_>>(),
+        &group_eph_scalar,
+        &group_nonce,
+    );
 
     let group_cipher = ChaCha20Poly1305::new((&content_key).into());
     let group_ciphertext = group_cipher
         .encrypt(Nonce::from_slice(&group_nonce), group_inner.as_slice())
         .expect("group encryption");
 
-    let group_remark = encode_group(&group_nonce, &group_eph_pubkey.to_bytes(), &group_capsules, &group_ciphertext);
+    let group_remark = encode_group(
+        &group_nonce,
+        &group_eph_pubkey.to_bytes(),
+        &group_capsules,
+        &group_ciphertext,
+    );
 
-    // Verify: Bob can decrypt
-    let group_content = &group_remark[13..]; // skip type(1) + nonce(12)
-    let bob_decrypted = encryption::decrypt_from_group(group_content, &bob_scalar, &group_nonce, Some(3)).unwrap();
+    let group_content = &group_remark[13..];
+    let bob_decrypted =
+        encryption::decrypt_from_group(group_content, &bob_scalar, &group_nonce, Some(3)).unwrap();
     assert_eq!(bob_decrypted, group_inner);
 
-    // Verify: Charlie can decrypt
-    let charlie_decrypted = encryption::decrypt_from_group(group_content, &charlie_scalar, &group_nonce, Some(3)).unwrap();
+    let charlie_decrypted =
+        encryption::decrypt_from_group(group_content, &charlie_scalar, &group_nonce, Some(3))
+            .unwrap();
     assert_eq!(charlie_decrypted, group_inner);
 
-    // Verify: random seed CANNOT decrypt
     let random_seed: [u8; 32] = [0xEE; 32];
     let random_scalar = encryption::sr25519_signing_scalar(&random_seed);
-    assert!(encryption::decrypt_from_group(group_content, &random_scalar, &group_nonce, Some(3)).is_err());
+    assert!(
+        encryption::decrypt_from_group(group_content, &random_scalar, &group_nonce, Some(3))
+            .is_err()
+    );
 
     // === Edge cases ===
     let empty_body_public = encode_public(&bob_pub, b"");
@@ -314,10 +344,10 @@ fn main() {
     let min_enc_remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, &nonce, &min_encrypted);
     let empty_desc_create = encode_channel_create("test", "").unwrap();
 
-    // === Negative cases (hex of invalid bytes) ===
-    let non_samp_version = hex::encode([0x21u8, 0x00]);
-    let reserved_type = hex::encode([0x16u8]);
-    let truncated_encrypted = hex::encode([0x12u8, 0x00, 0x01, 0x02]); // only 4 bytes, need 14
+    // === Negative cases ===
+    let non_samp_version = format!("0x{}", hex::encode([0x21u8, 0x00]));
+    let reserved_type = format!("0x{}", hex::encode([0x17u8]));
+    let truncated_encrypted = format!("0x{}", hex::encode([0x12u8, 0x00, 0x01, 0x02]));
 
     let vectors = TestVectors {
         alice: make_keypair_vec(&alice_seed),
@@ -388,9 +418,9 @@ fn main() {
             empty_desc_channel_create: h(&empty_desc_create),
         },
         negative_cases: NegativeCases {
-            non_samp_version: format!("0x{non_samp_version}"),
-            reserved_type: format!("0x{reserved_type}"),
-            truncated_encrypted: format!("0x{truncated_encrypted}"),
+            non_samp_version,
+            reserved_type,
+            truncated_encrypted,
         },
     };
 

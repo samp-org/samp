@@ -114,12 +114,12 @@ func DecodeRemark(data []byte) (*Remark, error) {
 	}
 	ct := data[0]
 	if ct&0xF0 != SAMPVersion {
-		return nil, errVersion(ct)
+		return nil, errVersion(ct & 0xF0)
 	}
 	lower := ct & 0x0F
 
 	switch lower {
-	case 0x00: // Public
+	case 0x00:
 		if len(data) < 33 {
 			return nil, ErrInsufficientData
 		}
@@ -133,7 +133,7 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = body
 		return &r, nil
 
-	case 0x01, 0x02: // Encrypted, Thread
+	case 0x01, 0x02:
 		if len(data) < 14 {
 			return nil, ErrInsufficientData
 		}
@@ -144,13 +144,13 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = data[14:]
 		return &r, nil
 
-	case 0x03: // Channel creation
+	case 0x03:
 		var r Remark
 		r.ContentType = ct
 		r.Content = data[1:]
 		return &r, nil
 
-	case 0x04: // Channel message
+	case 0x04:
 		if len(data) < 19 {
 			return nil, ErrInsufficientData
 		}
@@ -162,14 +162,14 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = data[7:]
 		return &r, nil
 
-	case 0x05: // Group message
+	case 0x05:
 		if len(data) < 45 {
 			return nil, ErrInsufficientData
 		}
 		var r Remark
 		r.ContentType = ct
 		copy(r.Nonce[:], data[1:13])
-		r.Content = data[13:] // eph_pubkey + capsules + ciphertext
+		r.Content = data[13:]
 		return &r, nil
 
 	default:

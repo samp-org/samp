@@ -20,20 +20,14 @@ var (
 )
 
 // Sr25519SigningScalar derives the sr25519 signing scalar from a 32-byte seed.
-// Matches schnorrkel's ExpansionMode::Ed25519: SHA-512, clamp, divide by cofactor (8).
 func Sr25519SigningScalar(seed [32]byte) *ristretto255.Scalar {
 	h := sha512.Sum512(seed[:])
-	// Ed25519 clamping
 	h[0] &= 248
 	h[31] &= 63
 	h[31] |= 64
-	// Divide by cofactor (8) = right-shift entire byte array by 3 bits.
-	// schnorrkel does this to keep a clean representation mod l.
 	divideScalarByCofactor(h[:32])
-	// After /8 the value fits in ~251 bits, always < l. Decode as canonical scalar.
 	s := ristretto255.NewScalar()
 	if err := s.Decode(h[:32]); err != nil {
-		// Fallback: reduce via FromUniformBytes (should not be needed)
 		var wide [64]byte
 		copy(wide[:32], h[:32])
 		return new(ristretto255.Scalar).FromUniformBytes(wide[:])
@@ -44,14 +38,13 @@ func Sr25519SigningScalar(seed [32]byte) *ristretto255.Scalar {
 func divideScalarByCofactor(s []byte) {
 	var low byte
 	for i := len(s) - 1; i >= 0; i-- {
-		r := s[i] & 0x07 // save bottom 3 bits
-		s[i] >>= 3       // divide by 8
+		r := s[i] & 0x07
+		s[i] >>= 3
 		s[i] += low
 		low = r << 5
 	}
 }
 
-// PublicFromSeed derives the sr25519 public key (Ristretto255 point) from a seed.
 func PublicFromSeed(seed [32]byte) []byte {
 	scalar := Sr25519SigningScalar(seed)
 	pub := new(ristretto255.Element).ScalarBaseMult(scalar)
@@ -73,15 +66,15 @@ func deriveEphemeral(seed *[32]byte, recipient []byte, nonce *[12]byte) []byte {
 }
 
 func deriveSealKey(seed *[32]byte, nonce *[12]byte) []byte {
-	return hkdfExpand(seed[:], nonce[:], []byte("samp-seal-v1"), 32)
+	return hkdfExpand(seed[:], nonce[:], []byte("samp-seal"), 32)
 }
 
 func deriveSymmetricKey(sharedSecret, nonce []byte) []byte {
-	return hkdfExpand(sharedSecret, nonce, []byte("samp-message-v1"), 32)
+	return hkdfExpand(sharedSecret, nonce, []byte("samp-message"), 32)
 }
 
 func deriveViewTag(sharedSecret []byte) byte {
-	out := hkdfExpand(sharedSecret, nil, []byte("samp-view-tag-v1"), 1)
+	out := hkdfExpand(sharedSecret, nil, []byte("samp-view-tag"), 1)
 	return out[0]
 }
 
@@ -123,7 +116,7 @@ func Encrypt(plaintext, recipientPub []byte, nonce [12]byte, senderSeed [32]byte
 	if err != nil {
 		return nil, err
 	}
-	ciphertextWithTag := aead.Seal(nil, nonce[:], plaintext, nil)
+	ciphertextWithTag := aead.Seal(nil, nonce[:], plaintext, sealedTo[:])
 
 	out := make([]byte, 0, EncryptedOverhead+len(plaintext))
 	out = append(out, ephPubkey.Encode(nil)...)
@@ -133,21 +126,21 @@ func Encrypt(plaintext, recipientPub []byte, nonce [12]byte, senderSeed [32]byte
 }
 
 // Decrypt decrypts as the recipient using the signing scalar.
-// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
-func Decrypt(content []byte, signingScalar *ristretto255.Scalar, nonce [12]byte) ([]byte, error) {
-	if len(content) < EncryptedOverhead {
+func Decrypt(remark *Remark, signingScalar *ristretto255.Scalar) ([]byte, error) {
+	if len(remark.Content) < EncryptedOverhead {
 		return nil, ErrInsufficientData
 	}
+	content := remark.Content
 	sharedSecret, err := ecdhSharedSecret(signingScalar, content[:32])
 	if err != nil {
 		return nil, err
 	}
-	symKey := deriveSymmetricKey(sharedSecret, nonce[:])
+	symKey := deriveSymmetricKey(sharedSecret, remark.Nonce[:])
 	aead, err := chacha20poly1305.New(symKey)
 	if err != nil {
 		return nil, err
 	}
-	plaintext, err := aead.Open(nil, nonce[:], content[64:], nil)
+	plaintext, err := aead.Open(nil, remark.Nonce[:], content[64:], content[32:64])
 	if err != nil {
 		return nil, ErrDecryptionFailed
 	}
@@ -155,11 +148,12 @@ func Decrypt(content []byte, signingScalar *ristretto255.Scalar, nonce [12]byte)
 }
 
 // DecryptAsSender decrypts using the sender's seed (via sealed_to).
-// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
-func DecryptAsSender(content []byte, senderSeed [32]byte, nonce [12]byte) ([]byte, error) {
-	if len(content) < EncryptedOverhead {
+func DecryptAsSender(remark *Remark, senderSeed [32]byte) ([]byte, error) {
+	if len(remark.Content) < EncryptedOverhead {
 		return nil, ErrInsufficientData
 	}
+	content := remark.Content
+	nonce := remark.Nonce
 	sealKey := deriveSealKey(&senderSeed, &nonce)
 	var recipient [32]byte
 	for i := 0; i < 32; i++ {
@@ -178,7 +172,7 @@ func DecryptAsSender(content []byte, senderSeed [32]byte, nonce [12]byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	plaintext, err := aead.Open(nil, nonce[:], content[64:], nil)
+	plaintext, err := aead.Open(nil, nonce[:], content[64:], content[32:64])
 	if err != nil {
 		return nil, ErrDecryptionFailed
 	}
@@ -186,12 +180,11 @@ func DecryptAsSender(content []byte, senderSeed [32]byte, nonce [12]byte) ([]byt
 }
 
 // CheckViewTag computes the recipient-side view tag (Section 5.3).
-// Extracts eph_pubkey from encryptedContent[0..32], computes shared secret, derives tag.
-func CheckViewTag(signingScalar *ristretto255.Scalar, encryptedContent []byte) (byte, error) {
-	if len(encryptedContent) < EncryptedOverhead {
+func CheckViewTag(remark *Remark, signingScalar *ristretto255.Scalar) (byte, error) {
+	if len(remark.Content) < EncryptedOverhead {
 		return 0, ErrInsufficientData
 	}
-	sharedSecret, err := ecdhSharedSecret(signingScalar, encryptedContent[:32])
+	sharedSecret, err := ecdhSharedSecret(signingScalar, remark.Content[:32])
 	if err != nil {
 		return 0, err
 	}
@@ -199,14 +192,15 @@ func CheckViewTag(signingScalar *ristretto255.Scalar, encryptedContent []byte) (
 }
 
 // UnsealRecipient recovers the recipient pubkey from sealed_to (Section 5.5 step 3).
-func UnsealRecipient(encryptedContent []byte, senderSeed [32]byte, nonce [12]byte) ([32]byte, error) {
-	if len(encryptedContent) < EncryptedOverhead {
+func UnsealRecipient(remark *Remark, senderSeed [32]byte) ([32]byte, error) {
+	if len(remark.Content) < EncryptedOverhead {
 		return [32]byte{}, ErrInsufficientData
 	}
+	nonce := remark.Nonce
 	sealKey := deriveSealKey(&senderSeed, &nonce)
 	var recipient [32]byte
 	for i := 0; i < 32; i++ {
-		recipient[i] = encryptedContent[32+i] ^ sealKey[i]
+		recipient[i] = remark.Content[32+i] ^ sealKey[i]
 	}
 	return recipient, nil
 }
@@ -230,7 +224,7 @@ func DeriveGroupEphemeral(senderSeed, nonce []byte) []byte {
 }
 
 func deriveKeyWrap(sharedSecret, nonce []byte) []byte {
-	return hkdfExpand(sharedSecret, nonce, []byte("samp-key-wrap-v1"), 32)
+	return hkdfExpand(sharedSecret, nonce, []byte("samp-key-wrap"), 32)
 }
 
 func BuildCapsules(contentKey []byte, memberPubkeys [][]byte, ephScalar, nonce []byte) []byte {

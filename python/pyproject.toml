@@ -11,7 +11,7 @@ dev = ["pytest"]
 
 [project.urls]
 Repository = "https://github.com/samp-org/samp"
-Specification = "https://github.com/samp-org/samp/blob/main/specs/samp-v1.md"
+Specification = "https://github.com/samp-org/samp/blob/main/specs/samp.md"
 
 [build-system]
 requires = ["setuptools"]

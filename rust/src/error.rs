@@ -14,7 +14,7 @@ pub enum SampError {
 impl fmt::Display for SampError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidVersion(v) => write!(f, "unsupported version: {v}"),
+            Self::InvalidVersion(v) => write!(f, "unsupported version: 0x{v:02x}"),
             Self::ReservedContentType(ct) => write!(f, "reserved content type: 0x{ct:02x}"),
             Self::DecryptionFailed => write!(f, "decryption failed"),
             Self::InvalidUtf8 => write!(f, "content is not valid UTF-8"),

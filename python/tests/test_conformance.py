@@ -1,8 +1,9 @@
-"""SAMP v0.2 conformance tests against shared test vectors."""
+"""SAMP conformance tests against shared test vectors."""
 
 import json
 from pathlib import Path
 
+import pytest
 import samp_crypto
 
 from samp import (
@@ -16,7 +17,6 @@ from samp.wire import (
     CONTENT_TYPE_ENCRYPTED,
     CONTENT_TYPE_GROUP,
     CONTENT_TYPE_PUBLIC,
-    CONTENT_TYPE_THREAD,
     decode_channel_create,
     decode_thread_content,
     encode_channel_create,
@@ -119,9 +119,8 @@ def test_encrypted_recipient_decryption():
     v = load_vectors()
     bob_seed = h(v["bob"]["seed"])
     bob_scalar = samp_crypto.sr25519_signing_scalar(bob_seed)
-    nonce = h(v["encrypted_message"]["nonce"])
-    encrypted_content = h(v["encrypted_message"]["encrypted_content"])
-    plaintext = decrypt(encrypted_content, bob_scalar, nonce)
+    parsed = decode_remark(h(v["encrypted_message"]["remark"]))
+    plaintext = decrypt(parsed, bob_scalar)
     assert plaintext == h(v["encrypted_message"]["plaintext"])
 
 
@@ -131,9 +130,8 @@ def test_encrypted_recipient_decryption():
 def test_sender_self_decryption():
     v = load_vectors()
     alice_seed = h(v["alice"]["seed"])
-    nonce = h(v["encrypted_message"]["nonce"])
-    encrypted_content = h(v["encrypted_message"]["encrypted_content"])
-    plaintext = decrypt_as_sender(encrypted_content, alice_seed, nonce)
+    parsed = decode_remark(h(v["encrypted_message"]["remark"]))
+    plaintext = decrypt_as_sender(parsed, alice_seed)
     assert plaintext == h(v["sender_self_decryption"]["plaintext"])
     assert h(v["sender_self_decryption"]["unsealed_recipient"]) == h(v["bob"]["sr25519_public"])
 
@@ -160,8 +158,9 @@ def test_thread_message():
     encrypted = encrypt(thread_plaintext, bob_pub, nonce, alice_seed)
     assert encrypted == h(v["thread_message"]["encrypted_content"])
 
-    decrypted = decrypt(encrypted, bob_scalar, nonce)
-    thread, reply_to, continues, body = decode_thread_content(decrypted)
+    parsed = decode_remark(h(v["thread_message"]["remark"]))
+    decrypted = decrypt(parsed, bob_scalar)
+    thread, reply_to, _continues, body = decode_thread_content(decrypted)
     assert thread == (th[0], th[1])
     assert reply_to == (rt[0], rt[1])
     assert body == h(v["thread_message"]["body"])
@@ -229,8 +228,7 @@ def test_conformance_group_decrypt_by_member():
     v = load_vectors()
     bob_seed = h(v["bob"]["seed"])
     bob_scalar = samp_crypto.sr25519_signing_scalar(bob_seed)
-    remark = h(v["group_message"]["remark"])
-    parsed = decode_remark(remark)
+    parsed = decode_remark(h(v["group_message"]["remark"]))
     plaintext = decrypt_from_group(parsed.content, bob_scalar, parsed.nonce)
     assert plaintext == h(v["group_message"]["root_plaintext"])
 
@@ -240,23 +238,20 @@ def test_conformance_group_decrypt_by_member():
 
 def test_edge_empty_body_public():
     v = load_vectors()
-    remark = h(v["edge_cases"]["empty_body_public"])
-    parsed = decode_remark(remark)
+    parsed = decode_remark(h(v["edge_cases"]["empty_body_public"]))
     assert parsed.content_type == CONTENT_TYPE_PUBLIC
     assert parsed.content == b""
 
 
 def test_edge_min_encrypted():
     v = load_vectors()
-    remark = h(v["edge_cases"]["min_encrypted"])
-    parsed = decode_remark(remark)
+    parsed = decode_remark(h(v["edge_cases"]["min_encrypted"]))
     assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
 
 
 def test_edge_empty_desc_channel_create():
     v = load_vectors()
-    remark = h(v["edge_cases"]["empty_desc_channel_create"])
-    parsed = decode_remark(remark)
+    parsed = decode_remark(h(v["edge_cases"]["empty_desc_channel_create"]))
     name, desc = decode_channel_create(parsed.content)
     assert name == "test"
     assert desc == ""
@@ -267,26 +262,17 @@ def test_edge_empty_desc_channel_create():
 
 def test_negative_non_samp_version():
     v = load_vectors()
-    try:
+    with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["non_samp_version"]))
-        assert False, "should have raised"
-    except SampError:
-        pass
 
 
 def test_negative_reserved_type():
     v = load_vectors()
-    try:
+    with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["reserved_type"]))
-        assert False, "should have raised"
-    except SampError:
-        pass
 
 
 def test_negative_truncated_encrypted():
     v = load_vectors()
-    try:
+    with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["truncated_encrypted"]))
-        assert False, "should have raised"
-    except SampError:
-        pass

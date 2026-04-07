@@ -123,7 +123,7 @@ Encryption uses Ristretto255 ECDH for key agreement, HKDF-SHA256 for key derivat
 
 ## Specification
 
-[`specs/samp-v1.md`](specs/samp-v1.md) is the authority. It covers wire formats, encryption, DAG threading, processing rules, and security properties.
+[`specs/samp.md`](specs/samp.md) is the authority. It covers wire formats, encryption, DAG threading, processing rules, and security properties.
 
 ## SDKs
 
@@ -139,13 +139,19 @@ Four implementations. Same API surface. Same byte output. All test against share
 ## Repository layout
 
 ```
-specs/          Protocol specification (samp-v1.md)
+specs/          Protocol specification (samp.md)
 rust/           Rust SDK (reference implementation)
 python/         Python SDK + native crypto extension (PyO3)
 go/             Go SDK
 typescript/     TypeScript SDK (@noble libraries)
 e2e/            Shared test vectors and deterministic generator
 ```
+
+## Mirrors
+
+A SAMP mirror indexes remarks from a Substrate node and serves them via HTTP API. Clients use mirrors to fetch historical messages without scanning the full chain.
+
+The [`samp-org/mirror-template`](https://github.com/samp-org/mirror-template) repository is a ready-to-deploy mirror that works with any Substrate chain. It connects to a node, indexes all SAMP remarks into SQLite, and exposes a REST API for querying by content type, sender, or channel.
 
 ## Contributing
 
