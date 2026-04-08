@@ -1,62 +1,62 @@
 {
   "compact": [
     {
-      "value": 0,
+      "value": "0",
       "encoded": "0x00",
       "consumed": 1
     },
     {
-      "value": 1,
+      "value": "1",
       "encoded": "0x04",
       "consumed": 1
     },
     {
-      "value": 63,
+      "value": "63",
       "encoded": "0xfc",
       "consumed": 1
     },
     {
-      "value": 64,
+      "value": "64",
       "encoded": "0x0101",
       "consumed": 2
     },
     {
-      "value": 16383,
+      "value": "16383",
       "encoded": "0xfdff",
       "consumed": 2
     },
     {
-      "value": 16384,
+      "value": "16384",
       "encoded": "0x02000100",
       "consumed": 4
     },
     {
-      "value": 1073741823,
+      "value": "1073741823",
       "encoded": "0xfeffffff",
       "consumed": 4
     },
     {
-      "value": 1073741824,
+      "value": "1073741824",
       "encoded": "0x0300000040",
       "consumed": 5
     },
     {
-      "value": 4294967295,
+      "value": "4294967295",
       "encoded": "0x03ffffffff",
       "consumed": 5
     },
     {
-      "value": 4294967296,
+      "value": "4294967296",
       "encoded": "0x070000000001",
       "consumed": 6
     },
     {
-      "value": 72057594037927936,
+      "value": "72057594037927936",
       "encoded": "0x130000000000000001",
       "consumed": 9
     },
     {
-      "value": 18446744073709551615,
+      "value": "18446744073709551615",
       "encoded": "0x13ffffffffffffffff",
       "consumed": 9
     }

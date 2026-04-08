@@ -451,7 +451,7 @@ fn main() {
 
 #[derive(Serialize)]
 struct ScaleCompactVec {
-    value: u64,
+    value: String,
     encoded: String,
     consumed: usize,
 }
@@ -484,7 +484,7 @@ fn build_scale_vectors() -> ScaleVectors {
             let (decoded, consumed) = decode_compact(&encoded).expect("round-trip");
             assert_eq!(decoded, value);
             ScaleCompactVec {
-                value,
+                value: value.to_string(),
                 encoded: h(&encoded),
                 consumed,
             }

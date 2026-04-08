@@ -8,7 +8,7 @@ struct ScaleVectors {
 
 #[derive(Deserialize)]
 struct CompactCase {
-    value: u64,
+    value: String,
     encoded: String,
     consumed: usize,
 }
@@ -155,17 +155,13 @@ fn decode_bytes_returns_none_when_payload_truncated() {
 fn matches_e2e_scale_vectors_fixture() {
     let vectors: ScaleVectors = serde_json::from_str(SCALE_VECTORS_JSON).expect("parse fixture");
     for case in vectors.compact {
+        let value: u64 = case.value.parse().expect("parse decimal value");
         let mut encoded = Vec::new();
-        encode_compact(case.value, &mut encoded);
-        assert_eq!(
-            encoded,
-            unhex(&case.encoded),
-            "encode mismatch for {}",
-            case.value
-        );
+        encode_compact(value, &mut encoded);
+        assert_eq!(encoded, unhex(&case.encoded), "encode mismatch for {value}");
 
         let (decoded, consumed) = decode_compact(&encoded).expect("decode round-trip");
-        assert_eq!(decoded, case.value);
+        assert_eq!(decoded, value);
         assert_eq!(consumed, case.consumed);
     }
 }
