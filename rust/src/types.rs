@@ -108,6 +108,10 @@ impl Pubkey {
     pub fn to_compressed_ristretto(&self) -> curve25519_dalek::ristretto::CompressedRistretto {
         curve25519_dalek::ristretto::CompressedRistretto(self.0)
     }
+
+    pub fn to_ss58(&self, prefix: Ss58Prefix) -> Ss58Address {
+        Ss58Address::encode(self, prefix)
+    }
 }
 
 impl fmt::Debug for Pubkey {
@@ -495,5 +499,149 @@ impl ChannelDescription {
 impl fmt::Debug for ChannelDescription {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ChannelDescription({:?})", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Ss58Prefix(u16);
+
+impl Ss58Prefix {
+    pub const SUBSTRATE_GENERIC: Self = Self(42);
+    pub const POLKADOT: Self = Self(0);
+    pub const KUSAMA: Self = Self(2);
+
+    pub fn new(value: u16) -> Result<Self, SampError> {
+        if value > 63 {
+            return Err(SampError::Ss58PrefixUnsupported(value));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn get(self) -> u16 {
+        self.0
+    }
+}
+
+impl fmt::Debug for Ss58Prefix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ss58Prefix({})", self.0)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Ss58Address {
+    address: String,
+    pubkey: Pubkey,
+    prefix: Ss58Prefix,
+}
+
+impl Ss58Address {
+    pub fn parse(s: &str) -> Result<Self, SampError> {
+        crate::ss58::decode(s)
+    }
+
+    pub fn encode(pubkey: &Pubkey, prefix: Ss58Prefix) -> Self {
+        crate::ss58::encode(pubkey, prefix)
+    }
+
+    pub(crate) fn from_parts(address: String, pubkey: Pubkey, prefix: Ss58Prefix) -> Self {
+        Self {
+            address,
+            pubkey,
+            prefix,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.address
+    }
+
+    pub fn pubkey(&self) -> &Pubkey {
+        &self.pubkey
+    }
+
+    pub fn prefix(&self) -> Ss58Prefix {
+        self.prefix
+    }
+
+    pub fn short(&self) -> Ss58Short {
+        Ss58Short::from_address(&self.address)
+    }
+}
+
+impl fmt::Debug for Ss58Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ss58Address({})", self.address)
+    }
+}
+
+impl fmt::Display for Ss58Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.address)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Ss58Short(String);
+
+impl Ss58Short {
+    fn from_address(full: &str) -> Self {
+        let s = if full.len() > 12 {
+            format!("{}...{}", &full[..6], &full[full.len() - 4..])
+        } else {
+            full.to_string()
+        };
+        Self(s)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Ss58Short {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ss58Short({})", self.0)
+    }
+}
+
+impl fmt::Display for Ss58Short {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+pub const CHAIN_NAME_MAX_BYTES: usize = 64;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ChainName(String);
+
+impl ChainName {
+    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
+        let s = s.into();
+        if s.is_empty() || s.len() > CHAIN_NAME_MAX_BYTES {
+            return Err(SampError::InvalidChainName(s.len()));
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Debug for ChainName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ChainName({:?})", self.0)
+    }
+}
+
+impl fmt::Display for ChainName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }

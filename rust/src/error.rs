@@ -13,6 +13,11 @@ pub enum SampError {
     ExtIndexOverflow(usize),
     InvalidCapsules(usize),
     InvalidMessageBody(usize),
+    InvalidChainName(usize),
+    Ss58PrefixUnsupported(u16),
+    Ss58InvalidBase58,
+    Ss58TooShort,
+    Ss58BadChecksum,
 }
 
 impl fmt::Display for SampError {
@@ -31,6 +36,13 @@ impl fmt::Display for SampError {
             Self::InvalidMessageBody(n) => {
                 write!(f, "message body must be 0..=4096 bytes (got {n})")
             }
+            Self::InvalidChainName(n) => write!(f, "chain name must be 1..=64 bytes (got {n})"),
+            Self::Ss58PrefixUnsupported(p) => {
+                write!(f, "SS58 prefix {p} requires two-byte encoding (unsupported)")
+            }
+            Self::Ss58InvalidBase58 => write!(f, "SS58 address contains invalid base58"),
+            Self::Ss58TooShort => write!(f, "SS58 address too short"),
+            Self::Ss58BadChecksum => write!(f, "SS58 address has invalid checksum"),
         }
     }
 }
