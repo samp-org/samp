@@ -38,9 +38,7 @@ fn eve_pubkey() -> CompressedRistretto {
     CompressedRistretto(pubkey_from_seed(&eve_seed()))
 }
 
-// ---------------------------------------------------------------------------
 // Public message (0x10)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn public_message_roundtrip() {
@@ -57,9 +55,7 @@ fn public_message_roundtrip() {
     assert_eq!(decoded.content, body);
 }
 
-// ---------------------------------------------------------------------------
 // Encrypted message (0x11)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn encrypted_message_roundtrip() {
@@ -82,9 +78,7 @@ fn encrypted_message_roundtrip() {
     assert_eq!(decrypted, plaintext);
 }
 
-// ---------------------------------------------------------------------------
 // Thread message (0x12)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn thread_message_roundtrip() {
@@ -140,9 +134,7 @@ fn thread_message_roundtrip() {
     assert_eq!(body, b"thread message");
 }
 
-// ---------------------------------------------------------------------------
 // Channel creation (0x13)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn channel_creation_roundtrip() {
@@ -156,9 +148,7 @@ fn channel_creation_roundtrip() {
     assert_eq!(desc, "The main channel");
 }
 
-// ---------------------------------------------------------------------------
 // Channel message (0x14)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn channel_message_roundtrip() {
@@ -201,9 +191,7 @@ fn channel_message_roundtrip() {
     assert_eq!(body, b"channel message");
 }
 
-// ---------------------------------------------------------------------------
 // Group message (0x15) -- per-message capsules
-// ---------------------------------------------------------------------------
 
 #[test]
 fn group_root_message_roundtrip() {
@@ -335,9 +323,7 @@ fn group_trial_aead_without_known_n() {
     assert_eq!(body, b"trial aead test");
 }
 
-// ---------------------------------------------------------------------------
 // 1:1 encryption edge cases
-// ---------------------------------------------------------------------------
 
 #[test]
 fn encrypted_message_unreadable_by_third_party() {
@@ -385,9 +371,7 @@ fn content_type_reserved_rejected() {
     assert!(ContentType::from_byte(0x17).is_err());
 }
 
-// ---------------------------------------------------------------------------
 // Content helpers
-// ---------------------------------------------------------------------------
 
 #[test]
 fn thread_content_roundtrip() {
@@ -453,9 +437,7 @@ fn channel_message_is_lean() {
     assert_eq!(remark.len(), 41);
 }
 
-// ---------------------------------------------------------------------------
 // Channel validation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn encode_channel_create_name_too_long_returns_error() {

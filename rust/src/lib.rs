@@ -1,5 +1,8 @@
 pub mod encryption;
 pub mod error;
+pub mod extrinsic;
+pub mod metadata;
+pub mod scale;
 pub mod wire;
 
 pub use encryption::{
@@ -8,6 +11,11 @@ pub use encryption::{
     scan_capsules, sr25519_signing_scalar, unseal_recipient, GroupEncrypted, ENCRYPTED_OVERHEAD,
 };
 pub use error::SampError;
+pub use extrinsic::{
+    build_signed_extrinsic, extract_call, extract_signer, ChainParams, ExtractedCall,
+};
+pub use metadata::{ErrorEntry, ErrorTable, Metadata, StorageLayout};
+pub use scale::{decode_bytes, decode_compact, encode_compact};
 pub use wire::{
     channel_ref_from_recipient, decode_channel_content, decode_channel_create,
     decode_group_content, decode_group_members, decode_remark, decode_thread_content,

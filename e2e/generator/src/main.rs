@@ -7,8 +7,11 @@ use hkdf::Hkdf;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use serde::Serialize;
 use sha2::Sha256;
+use std::path::PathBuf;
 
 use samp::encryption;
+use samp::extrinsic::{build_signed_extrinsic, ChainParams};
+use samp::scale::{decode_compact, encode_compact};
 use samp::wire::*;
 
 fn h(bytes: &[u8]) -> String {
@@ -349,6 +352,25 @@ fn main() {
     let reserved_type = format!("0x{}", hex::encode([0x17u8]));
     let truncated_encrypted = format!("0x{}", hex::encode([0x12u8, 0x00, 0x01, 0x02]));
 
+    let scale_vectors = build_scale_vectors();
+    let extrinsic_vectors = build_extrinsic_vectors(&alice_kp, &alice_seed);
+
+    let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .canonicalize()
+        .expect("e2e directory");
+
+    std::fs::write(
+        out_dir.join("scale-vectors.json"),
+        serde_json::to_string_pretty(&scale_vectors).unwrap(),
+    )
+    .expect("write scale-vectors.json");
+    std::fs::write(
+        out_dir.join("extrinsic-vectors.json"),
+        serde_json::to_string_pretty(&extrinsic_vectors).unwrap(),
+    )
+    .expect("write extrinsic-vectors.json");
+
     let vectors = TestVectors {
         alice: make_keypair_vec(&alice_seed),
         bob: make_keypair_vec(&bob_seed),
@@ -425,4 +447,160 @@ fn main() {
     };
 
     println!("{}", serde_json::to_string_pretty(&vectors).unwrap());
+}
+
+#[derive(Serialize)]
+struct ScaleCompactVec {
+    value: u64,
+    encoded: String,
+    consumed: usize,
+}
+
+#[derive(Serialize)]
+struct ScaleVectors {
+    compact: Vec<ScaleCompactVec>,
+}
+
+fn build_scale_vectors() -> ScaleVectors {
+    let probes: [u64; 12] = [
+        0,
+        1,
+        63,
+        64,
+        16_383,
+        16_384,
+        (1 << 30) - 1,
+        1 << 30,
+        u64::from(u32::MAX),
+        1u64 << 32,
+        1u64 << 56,
+        u64::MAX,
+    ];
+    let compact = probes
+        .iter()
+        .map(|&value| {
+            let mut encoded = Vec::new();
+            encode_compact(value, &mut encoded);
+            let (decoded, consumed) = decode_compact(&encoded).expect("round-trip");
+            assert_eq!(decoded, value);
+            ScaleCompactVec {
+                value,
+                encoded: h(&encoded),
+                consumed,
+            }
+        })
+        .collect();
+    ScaleVectors { compact }
+}
+
+#[derive(Serialize)]
+struct ChainParamsVec {
+    genesis_hash: String,
+    spec_version: u32,
+    tx_version: u32,
+}
+
+#[derive(Serialize)]
+struct ExtrinsicCaseVec {
+    label: &'static str,
+    pallet_idx: u8,
+    call_idx: u8,
+    call_args: String,
+    public_key: String,
+    fixed_signature: String,
+    nonce: u32,
+    chain_params: ChainParamsVec,
+    expected_extrinsic: String,
+}
+
+#[derive(Serialize)]
+struct ExtrinsicVectors {
+    cases: Vec<ExtrinsicCaseVec>,
+}
+
+fn build_extrinsic_vectors(alice_kp: &schnorrkel::Keypair, _alice_seed: &[u8; 32]) -> ExtrinsicVectors {
+    let public_key = alice_kp.public.to_bytes();
+    let chain = ChainParams {
+        genesis_hash: [0x11; 32],
+        spec_version: 100,
+        tx_version: 1,
+    };
+    let fixed_signature: [u8; 64] = [0xAB; 64];
+
+    let cases = vec![
+        build_case(
+            "system_remark_with_event_short",
+            0,
+            7,
+            b"hi",
+            &public_key,
+            &fixed_signature,
+            0,
+            &chain,
+        ),
+        build_case(
+            "system_remark_with_event_empty",
+            0,
+            7,
+            b"",
+            &public_key,
+            &fixed_signature,
+            1,
+            &chain,
+        ),
+        build_case(
+            "system_remark_with_event_long",
+            0,
+            7,
+            &vec![0xCD; 1024],
+            &public_key,
+            &fixed_signature,
+            42,
+            &chain,
+        ),
+    ];
+
+    ExtrinsicVectors { cases }
+}
+
+fn build_case(
+    label: &'static str,
+    pallet_idx: u8,
+    call_idx: u8,
+    remark: &[u8],
+    public_key: &[u8; 32],
+    fixed_signature: &[u8; 64],
+    nonce: u32,
+    chain: &ChainParams,
+) -> ExtrinsicCaseVec {
+    let mut call_args = Vec::new();
+    encode_compact(remark.len() as u64, &mut call_args);
+    call_args.extend_from_slice(remark);
+
+    let extrinsic = build_signed_extrinsic(
+        pallet_idx,
+        call_idx,
+        &call_args,
+        public_key,
+        |_msg| *fixed_signature,
+        nonce,
+        chain,
+    )
+    .expect("build_signed_extrinsic");
+
+    ExtrinsicCaseVec {
+        label,
+        pallet_idx,
+        call_idx,
+        call_args: h(&call_args),
+        public_key: h(public_key),
+        fixed_signature: h(fixed_signature),
+        nonce,
+        chain_params: ChainParamsVec {
+            genesis_hash: h(&chain.genesis_hash),
+            spec_version: chain.spec_version,
+            tx_version: chain.tx_version,
+        },
+        expected_extrinsic: h(&extrinsic),
+    }
 }

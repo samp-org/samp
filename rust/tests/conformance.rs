@@ -136,8 +136,6 @@ fn load_vectors() -> TestVectors {
     serde_json::from_str(&data).expect("valid JSON")
 }
 
-// --- Keypair derivation ---
-
 #[test]
 fn conformance_keypair_alice() {
     let v = load_vectors();
@@ -160,8 +158,6 @@ fn conformance_keypair_bob() {
     assert_eq!(scalar.to_bytes(), h32(&v.bob.signing_scalar));
 }
 
-// --- Public message ---
-
 #[test]
 fn conformance_public_message_encode() {
     let v = load_vectors();
@@ -177,8 +173,6 @@ fn conformance_public_message_decode() {
     assert_eq!(parsed.content_type, ContentType::Public);
     assert_eq!(parsed.content, h(&v.public_message.body));
 }
-
-// --- Encrypted message ---
 
 #[test]
 fn conformance_encrypted_encode() {
@@ -229,8 +223,6 @@ fn conformance_encrypted_recipient_decrypt() {
     assert_eq!(plaintext, h(&v.encrypted_message.plaintext));
 }
 
-// --- Sender self-decryption ---
-
 #[test]
 fn conformance_sender_self_decrypt() {
     let v = load_vectors();
@@ -246,8 +238,6 @@ fn conformance_sender_self_decrypt() {
         h(&v.bob.sr25519_public)
     );
 }
-
-// --- Thread message ---
 
 #[test]
 fn conformance_thread_message() {
@@ -295,8 +285,6 @@ fn conformance_thread_message() {
     assert_eq!(body, h(&v.thread_message.body));
 }
 
-// --- Channel message ---
-
 #[test]
 fn conformance_channel_message() {
     let v = load_vectors();
@@ -319,8 +307,6 @@ fn conformance_channel_message() {
     assert_eq!(remark, h(&ch.remark));
 }
 
-// --- Channel creation ---
-
 #[test]
 fn conformance_channel_create() {
     let v = load_vectors();
@@ -333,8 +319,6 @@ fn conformance_channel_create() {
     assert_eq!(name, v.channel_create.name);
     assert_eq!(desc, v.channel_create.description);
 }
-
-// --- Edge cases ---
 
 #[test]
 fn conformance_edge_empty_body_public() {
@@ -362,8 +346,6 @@ fn conformance_edge_empty_desc_channel_create() {
     assert_eq!(name, "test");
     assert_eq!(desc, "");
 }
-
-// --- Group message ---
 
 #[test]
 fn conformance_group_message_remark() {
@@ -399,8 +381,6 @@ fn conformance_group_decrypt_by_member() {
     let root_plaintext = h(&v.group_message.root_plaintext);
     assert_eq!(plaintext, root_plaintext);
 }
-
-// --- Negative cases ---
 
 #[test]
 fn conformance_negative_non_samp_version() {

@@ -10,7 +10,6 @@ use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
-/// Ephemeral public key, capsules, ciphertext — returned by group encryption.
 pub type GroupEncrypted = ([u8; 32], Vec<u8>, Vec<u8>);
 
 const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
@@ -19,12 +18,9 @@ const SEAL_INFO: &[u8] = b"samp-seal";
 const GROUP_EPH_INFO: &[u8] = b"samp-group-eph";
 const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap";
 
-/// Encrypted 1:1 content overhead: ephemeral(32) + sealed_to(32) + auth_tag(16) = 80 bytes.
 pub const ENCRYPTED_OVERHEAD: usize = 80;
 
-// ---------------------------------------------------------------------------
 // Shared primitives (Section 5.1-5.3)
-// ---------------------------------------------------------------------------
 
 pub fn sr25519_signing_scalar(seed: &[u8; 32]) -> Scalar {
     let msk = MiniSecretKey::from_bytes(seed).expect("valid 32-byte seed");
@@ -59,9 +55,7 @@ fn derive_symmetric_key(shared_secret: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] 
     key
 }
 
-// ---------------------------------------------------------------------------
 // 1:1 Encryption (Section 5.6) -- used by 0x11/0x12
-// ---------------------------------------------------------------------------
 
 fn derive_ephemeral(seed: &[u8; 32], recipient: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, seed);
@@ -89,7 +83,6 @@ fn seal_recipient(recipient: &[u8; 32], sender_seed: &[u8; 32], nonce: &[u8; 12]
     sealed
 }
 
-/// Compute the view tag for an outbound 1:1 message.
 pub fn compute_view_tag(
     sender_seed: &[u8; 32],
     recipient_pubkey: &CompressedRistretto,
@@ -114,7 +107,6 @@ fn ensure_one_to_one_remark(remark: &Remark) -> Result<(), SampError> {
     Ok(())
 }
 
-/// Verify the view tag for an inbound 1:1 message.
 pub fn check_view_tag(remark: &Remark, signing_scalar: &Scalar) -> Result<u8, SampError> {
     ensure_one_to_one_remark(remark)?;
     let eph_pubkey = CompressedRistretto(remark.content[..32].try_into().unwrap());
@@ -122,7 +114,6 @@ pub fn check_view_tag(remark: &Remark, signing_scalar: &Scalar) -> Result<u8, Sa
     Ok(derive_view_tag(&shared))
 }
 
-/// Recover the recipient pubkey from sealed_to (sender self-decryption).
 pub fn unseal_recipient(remark: &Remark, sender_seed: &[u8; 32]) -> Result<[u8; 32], SampError> {
     ensure_one_to_one_remark(remark)?;
     let sealed_to: [u8; 32] = remark.content[32..64].try_into().unwrap();
@@ -134,9 +125,6 @@ pub fn unseal_recipient(remark: &Remark, sender_seed: &[u8; 32]) -> Result<[u8; 
     Ok(recipient)
 }
 
-/// Encrypt plaintext for a single recipient (1:1).
-/// Content: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
-/// The AEAD AAD binds `sealed_to` into the auth tag (Section 5.6).
 pub fn encrypt(
     plaintext: &[u8],
     recipient_pubkey: &CompressedRistretto,
@@ -175,7 +163,6 @@ pub fn encrypt(
     Ok(content)
 }
 
-/// Decrypt as the recipient (1:1).
 pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, SampError> {
     ensure_one_to_one_remark(remark)?;
     let content = remark.content.as_slice();
@@ -198,7 +185,6 @@ pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, Samp
     result
 }
 
-/// Decrypt as the sender (1:1 self-decryption via sealed_to + deterministic ephemeral).
 pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<u8>, SampError> {
     ensure_one_to_one_remark(remark)?;
     let content = remark.content.as_slice();
@@ -226,11 +212,8 @@ pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<
     result
 }
 
-// ---------------------------------------------------------------------------
 // Multi-Recipient Encryption (Section 5.7) -- used by 0x15 (group)
-// ---------------------------------------------------------------------------
 
-/// Derive the shared group ephemeral scalar from sender seed + nonce.
 pub fn derive_group_ephemeral(sender_seed: &[u8; 32], nonce: &[u8; 12]) -> Scalar {
     let hk = Hkdf::<Sha256>::new(None, sender_seed);
     let mut info = Vec::with_capacity(GROUP_EPH_INFO.len() + nonce.len());
@@ -258,8 +241,6 @@ fn xor32(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     out
 }
 
-/// Build capsules for N members. Returns N * CAPSULE_SIZE bytes.
-/// Each capsule: view_tag(1) + wrapped_key(32).
 pub fn build_capsules(
     content_key: &[u8; 32],
     member_pubkeys: &[[u8; 32]],
@@ -287,7 +268,6 @@ pub fn build_capsules(
     out
 }
 
-/// Scan capsules for a matching view tag. Returns the unwrapped content key on match.
 pub fn scan_capsules(
     data: &[u8],
     eph_pubkey: &CompressedRistretto,
@@ -318,7 +298,6 @@ pub fn scan_capsules(
     None
 }
 
-/// Encrypt plaintext for multiple recipients. Returns (eph_pubkey_bytes, capsules, ciphertext_with_tag).
 pub fn encrypt_for_group(
     plaintext: &[u8],
     member_pubkeys: &[[u8; 32]],
@@ -342,8 +321,6 @@ pub fn encrypt_for_group(
     Ok((eph_pubkey.to_bytes(), capsules, ciphertext))
 }
 
-/// Decrypt a group message. `content` is everything after the nonce in the remark:
-/// eph_pubkey(32) + capsules(33*N) + ciphertext.
 pub fn decrypt_from_group(
     content: &[u8],
     my_scalar: &Scalar,
