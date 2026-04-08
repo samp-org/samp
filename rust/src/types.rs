@@ -660,3 +660,24 @@ impl fmt::Display for ChainName {
         f.write_str(&self.0)
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Timestamp(u64);
+
+impl Timestamp {
+    pub const ZERO: Self = Self(0);
+
+    pub const fn from_unix_secs(secs: u64) -> Self {
+        Self(secs)
+    }
+
+    pub const fn as_unix_secs(self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Debug for Timestamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Timestamp({}s)", self.0)
+    }
+}

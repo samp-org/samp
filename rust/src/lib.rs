@@ -23,8 +23,8 @@ pub use secret::Seed;
 pub use types::{
     BlockHash, BlockNumber, BlockRef, Capsules, ChainName, ChannelDescription, ChannelName,
     Ciphertext, ExtIndex, ExtrinsicBytes, GenesisHash, MessageBody, Nonce, Plaintext, Pubkey,
-    RemarkBytes, Signature, Ss58Address, Ss58Prefix, Ss58Short, ViewTag, CHAIN_NAME_MAX_BYTES,
-    MESSAGE_BODY_MAX_BYTES,
+    RemarkBytes, Signature, Ss58Address, Ss58Prefix, Ss58Short, Timestamp, ViewTag,
+    CHAIN_NAME_MAX_BYTES, MESSAGE_BODY_MAX_BYTES,
 };
 pub use wire::{
     decode_channel_content, decode_channel_create, decode_group_content, decode_group_members,
