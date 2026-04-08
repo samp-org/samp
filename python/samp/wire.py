@@ -15,11 +15,6 @@ CAPSULE_SIZE = 33
 
 
 class ContentType(IntEnum):
-    """Typed enumeration of SAMP message content types.
-
-    The single representation of message kind across the Python SDK.
-    """
-
     PUBLIC = 0x10
     ENCRYPTED = 0x11
     THREAD = 0x12
@@ -29,8 +24,6 @@ class ContentType(IntEnum):
 
 
 def content_type_from_byte(b: int) -> ContentType:
-    """Parse a wire byte into a ContentType, validating the SAMP version
-    nibble and rejecting reserved values."""
     if b & 0xF0 != SAMP_VERSION:
         raise SampError(f"unsupported version: 0x{b & 0xF0:02x}")
     lower = b & 0x0F

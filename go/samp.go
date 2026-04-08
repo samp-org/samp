@@ -18,8 +18,6 @@ const (
 	CapsuleSize    = 33
 )
 
-// ContentType is the typed enumeration of SAMP message content types.
-// It is the single representation of message kind across the Go SDK.
 type ContentType byte
 
 const (
@@ -31,11 +29,8 @@ const (
 	ContentTypeGroup         ContentType = 0x15
 )
 
-// Byte returns the on-wire byte representation of this content type.
 func (c ContentType) Byte() byte { return byte(c) }
 
-// ContentTypeFromByte parses a wire byte into a ContentType, validating
-// the SAMP version nibble and rejecting reserved values.
 func ContentTypeFromByte(b byte) (ContentType, error) {
 	if b&0xF0 != SAMPVersion {
 		return 0, errVersion(b & 0xF0)

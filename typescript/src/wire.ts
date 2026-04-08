@@ -8,10 +8,6 @@ export const CHANNEL_NAME_MAX = 32;
 export const CHANNEL_DESC_MAX = 128;
 export const CAPSULE_SIZE = 33;
 
-/**
- * ContentType is the typed enumeration of SAMP message content types.
- * It is the single representation of message kind across the TypeScript SDK.
- */
 export enum ContentType {
   Public = 0x10,
   Encrypted = 0x11,
@@ -21,10 +17,6 @@ export enum ContentType {
   Group = 0x15,
 }
 
-/**
- * Parse a wire byte into a ContentType, validating the SAMP version nibble
- * and rejecting reserved values.
- */
 export function contentTypeFromByte(b: number): ContentType {
   if ((b & 0xf0) !== SAMP_VERSION) {
     throw new SampError(`unsupported version: 0x${(b & 0xf0).toString(16).padStart(2, "0")}`);
