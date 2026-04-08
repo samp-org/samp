@@ -10,6 +10,10 @@ pub const CHANNEL_NAME_MAX: usize = 32;
 pub const CHANNEL_DESC_MAX: usize = 128;
 pub const CAPSULE_SIZE: usize = 33;
 
+pub fn is_samp_remark(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && bytes[0] & 0xF0 == SAMP_VERSION
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentType {
     Public,
