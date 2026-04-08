@@ -6,13 +6,26 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
-    ContentType, Nonce, Plaintext, Pubkey, Remark, Seed,
+    ChannelDescription, ChannelName, ContentType, MessageBody, Nonce, Plaintext, Pubkey, Remark,
+    Seed,
 };
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 
 fn pt(b: &[u8]) -> Plaintext {
     Plaintext::from_bytes(b.to_vec())
+}
+
+fn mb(s: &str) -> MessageBody {
+    MessageBody::parse(s.to_string()).expect("valid body")
+}
+
+fn cn(s: &str) -> ChannelName {
+    ChannelName::parse(s.to_string()).expect("valid channel name")
+}
+
+fn cd(s: &str) -> ChannelDescription {
+    ChannelDescription::parse(s.to_string()).expect("valid channel description")
 }
 
 fn alice_seed() -> Seed {
@@ -55,8 +68,8 @@ fn n(b: u8) -> Nonce {
 #[test]
 fn public_message_roundtrip() {
     let recipient = pubkey_from_seed(&bob_seed());
-    let body = b"Hello Bob!";
-    let remark = encode_public(&recipient, body);
+    let body = mb("Hello Bob!");
+    let remark = encode_public(&recipient, &body);
 
     assert_eq!(remark.as_bytes()[0], 0x10);
     assert_eq!(remark.len(), 33 + body.len());
@@ -135,14 +148,14 @@ fn thread_message_roundtrip() {
 
 #[test]
 fn channel_creation_roundtrip() {
-    let remark = samp::encode_channel_create("general", "The main channel").unwrap();
+    let remark = samp::encode_channel_create(&cn("general"), &cd("The main channel"));
     assert_eq!(remark.as_bytes()[0], 0x13);
 
     let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
         panic!("expected ChannelCreate");
     };
-    assert_eq!(name, "general");
-    assert_eq!(description, "The main channel");
+    assert_eq!(name.as_str(), "general");
+    assert_eq!(description.as_str(), "The main channel");
 }
 
 // Channel message (0x14)
@@ -153,7 +166,7 @@ fn channel_message_roundtrip() {
         br(200, 3),
         br(199, 1),
         br(198, 0),
-        b"channel message",
+        &mb("channel message"),
     );
     assert_eq!(remark.as_bytes()[0], 0x14);
     assert_eq!(remark.len(), 19 + 15);
@@ -383,12 +396,12 @@ fn channel_content_roundtrip() {
 
 #[test]
 fn channel_message_is_lean() {
-    let body = b"Did he use MEV shield?";
+    let body = mb("Did he use MEV shield?");
     let remark = encode_channel_msg(
         br(520, 14),
         br(519, 2),
         br(518, 0),
-        body,
+        &body,
     );
     assert_eq!(remark.len(), 41);
 }
@@ -396,18 +409,16 @@ fn channel_message_is_lean() {
 // Channel validation
 
 #[test]
-fn encode_channel_create_name_too_long_returns_error() {
-    let name = "a".repeat(33);
-    assert!(samp::encode_channel_create(&name, "desc").is_err());
+fn channel_name_too_long_returns_error() {
+    assert!(ChannelName::parse("a".repeat(33)).is_err());
 }
 
 #[test]
-fn encode_channel_create_empty_name_returns_error() {
-    assert!(samp::encode_channel_create("", "desc").is_err());
+fn channel_name_empty_returns_error() {
+    assert!(ChannelName::parse("").is_err());
 }
 
 #[test]
-fn encode_channel_create_desc_too_long_returns_error() {
-    let desc = "a".repeat(129);
-    assert!(samp::encode_channel_create("name", &desc).is_err());
+fn channel_description_too_long_returns_error() {
+    assert!(ChannelDescription::parse("a".repeat(129)).is_err());
 }

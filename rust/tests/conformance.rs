@@ -187,7 +187,9 @@ fn conformance_keypair_bob() {
 fn conformance_public_message_encode() {
     let v = load_vectors();
     let bob_pub = pubkey(&v.bob.sr25519_public);
-    let remark = encode_public(&bob_pub, &h(&v.public_message.body));
+    let body =
+        MessageBody::parse(String::from_utf8(h(&v.public_message.body)).unwrap()).unwrap();
+    let remark = encode_public(&bob_pub, &body);
     assert_eq!(remark.as_bytes(), h(&v.public_message.remark).as_slice());
 }
 
@@ -197,7 +199,7 @@ fn conformance_public_message_decode() {
     let Remark::Public { body, .. } = decode_remark(&rb(&v.public_message.remark)).unwrap() else {
         panic!("expected Public");
     };
-    assert_eq!(body, h(&v.public_message.body));
+    assert_eq!(body.as_bytes(), h(&v.public_message.body).as_slice());
 }
 
 #[test]
@@ -306,11 +308,12 @@ fn conformance_thread_message() {
 fn conformance_channel_message() {
     let v = load_vectors();
     let ch = &v.channel_message;
+    let body = MessageBody::parse(String::from_utf8(h(&ch.body)).unwrap()).unwrap();
     let remark = encode_channel_msg(
         br(ch.channel_ref[0], ch.channel_ref[1] as u16),
         br(ch.reply_to[0], ch.reply_to[1] as u16),
         br(ch.continues[0], ch.continues[1] as u16),
-        &h(&ch.body),
+        &body,
     );
     assert_eq!(remark.as_bytes(), h(&ch.remark).as_slice());
 }
@@ -318,15 +321,16 @@ fn conformance_channel_message() {
 #[test]
 fn conformance_channel_create() {
     let v = load_vectors();
-    let remark =
-        encode_channel_create(&v.channel_create.name, &v.channel_create.description).unwrap();
+    let name = ChannelName::parse(v.channel_create.name.clone()).unwrap();
+    let desc = ChannelDescription::parse(v.channel_create.description.clone()).unwrap();
+    let remark = encode_channel_create(&name, &desc);
     assert_eq!(remark.as_bytes(), h(&v.channel_create.remark).as_slice());
 
     let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
         panic!("expected ChannelCreate");
     };
-    assert_eq!(name, v.channel_create.name);
-    assert_eq!(description, v.channel_create.description);
+    assert_eq!(name.as_str(), v.channel_create.name);
+    assert_eq!(description.as_str(), v.channel_create.description);
 }
 
 #[test]
@@ -354,8 +358,8 @@ fn conformance_edge_empty_desc_channel_create() {
     let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
         panic!("expected ChannelCreate");
     };
-    assert_eq!(name, "test");
-    assert_eq!(description, "");
+    assert_eq!(name.as_str(), "test");
+    assert_eq!(description.as_str(), "");
 }
 
 #[test]

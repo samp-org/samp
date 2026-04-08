@@ -386,3 +386,114 @@ impl fmt::Debug for ExtrinsicBytes {
         write!(f, "ExtrinsicBytes({} bytes)", self.0.len())
     }
 }
+
+pub const MESSAGE_BODY_MAX_BYTES: usize = 4096;
+
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
+pub struct MessageBody(String);
+
+impl MessageBody {
+    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
+        let s = s.into();
+        if s.len() > MESSAGE_BODY_MAX_BYTES {
+            return Err(SampError::InvalidMessageBody(s.len()));
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for MessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MessageBody({} bytes)", self.0.len())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ChannelName(String);
+
+impl ChannelName {
+    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
+        let s = s.into();
+        if s.is_empty() || s.len() > crate::wire::CHANNEL_NAME_MAX {
+            return Err(SampError::InvalidChannelName);
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for ChannelName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ChannelName({:?})", self.0)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
+pub struct ChannelDescription(String);
+
+impl ChannelDescription {
+    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
+        let s = s.into();
+        if s.len() > crate::wire::CHANNEL_DESC_MAX {
+            return Err(SampError::InvalidChannelDesc);
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for ChannelDescription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ChannelDescription({:?})", self.0)
+    }
+}

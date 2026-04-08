@@ -173,7 +173,8 @@ fn main() {
 
     // === Public message ===
     let body = b"Hello";
-    let public_remark = encode_public(&bob_pubkey, body);
+    let body_typed = samp::MessageBody::parse("Hello").unwrap();
+    let public_remark = encode_public(&bob_pubkey, &body_typed);
 
     // === Encrypted message with full intermediates ===
     let plaintext = b"Hello Bob";
@@ -300,15 +301,18 @@ fn main() {
 
     // === Channel message ===
     let ch_body = b"Did he use MEV shield?";
+    let ch_body_typed = samp::MessageBody::parse("Did he use MEV shield?").unwrap();
     let ch_remark = encode_channel_msg(
         BlockRef { block: 100, index: 2 },
         BlockRef { block: 99, index: 1 },
         BlockRef::ZERO,
-        ch_body,
+        &ch_body_typed,
     );
 
     // === Channel creation ===
-    let create_remark = encode_channel_create("general", "General discussion").unwrap();
+    let create_name = samp::ChannelName::parse("general").unwrap();
+    let create_desc = samp::ChannelDescription::parse("General discussion").unwrap();
+    let create_remark = encode_channel_create(&create_name, &create_desc);
 
     // === Group message (deterministic, manual encryption) ===
     let group_nonce_bytes: [u8; 12] = [0xCC; 12];
@@ -370,7 +374,8 @@ fn main() {
     );
 
     // === Edge cases ===
-    let empty_body_public = encode_public(&bob_pubkey, b"");
+    let empty_body = samp::MessageBody::parse("").unwrap();
+    let empty_body_public = encode_public(&bob_pubkey, &empty_body);
     let empty_plaintext = samp::Plaintext::from_bytes(Vec::new());
     let min_encrypted =
         encryption::encrypt(&empty_plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();
@@ -380,7 +385,9 @@ fn main() {
         &nonce,
         &min_encrypted,
     );
-    let empty_desc_create = encode_channel_create("test", "").unwrap();
+    let edge_name = samp::ChannelName::parse("test").unwrap();
+    let edge_desc = samp::ChannelDescription::parse("").unwrap();
+    let empty_desc_create = encode_channel_create(&edge_name, &edge_desc);
 
     // === Negative cases ===
     let non_samp_version = format!("0x{}", hex::encode([0x21u8, 0x00]));

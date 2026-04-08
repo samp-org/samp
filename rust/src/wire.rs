@@ -1,5 +1,8 @@
 use crate::error::SampError;
-use crate::types::{BlockRef, Capsules, Ciphertext, Nonce, Pubkey, RemarkBytes, ViewTag};
+use crate::types::{
+    BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, MessageBody, Nonce, Pubkey,
+    RemarkBytes, ViewTag,
+};
 
 pub const SAMP_VERSION: u8 = 0x10;
 
@@ -82,13 +85,13 @@ pub struct GroupPayload {
 pub enum Remark {
     Public {
         recipient: Pubkey,
-        body: Vec<u8>,
+        body: MessageBody,
     },
     Encrypted(EncryptedPayload),
     Thread(EncryptedPayload),
     ChannelCreate {
-        name: String,
-        description: String,
+        name: ChannelName,
+        description: ChannelDescription,
     },
     Channel {
         channel_ref: BlockRef,
@@ -115,11 +118,11 @@ impl Remark {
     }
 }
 
-pub fn encode_public(recipient: &Pubkey, body: &[u8]) -> RemarkBytes {
+pub fn encode_public(recipient: &Pubkey, body: &MessageBody) -> RemarkBytes {
     let mut out = Vec::with_capacity(33 + body.len());
     out.push(ContentType::Public.to_byte());
     out.extend_from_slice(recipient.as_bytes());
-    out.extend_from_slice(body);
+    out.extend_from_slice(body.as_bytes());
     RemarkBytes::from_bytes(out)
 }
 
@@ -137,34 +140,28 @@ pub fn encode_encrypted(
     RemarkBytes::from_bytes(out)
 }
 
-pub fn encode_channel_create(name: &str, description: &str) -> Result<RemarkBytes, SampError> {
-    if name.is_empty() || name.len() > CHANNEL_NAME_MAX {
-        return Err(SampError::InvalidChannelName);
-    }
-    if description.len() > CHANNEL_DESC_MAX {
-        return Err(SampError::InvalidChannelDesc);
-    }
+pub fn encode_channel_create(name: &ChannelName, description: &ChannelDescription) -> RemarkBytes {
     let mut out = Vec::with_capacity(3 + name.len() + description.len());
     out.push(ContentType::ChannelCreate.to_byte());
     out.push(name.len() as u8);
-    out.extend_from_slice(name.as_bytes());
+    out.extend_from_slice(name.as_str().as_bytes());
     out.push(description.len() as u8);
-    out.extend_from_slice(description.as_bytes());
-    Ok(RemarkBytes::from_bytes(out))
+    out.extend_from_slice(description.as_str().as_bytes());
+    RemarkBytes::from_bytes(out)
 }
 
 pub fn encode_channel_msg(
     channel_ref: BlockRef,
     reply_to: BlockRef,
     continues: BlockRef,
-    body: &[u8],
+    body: &MessageBody,
 ) -> RemarkBytes {
     let mut out = Vec::with_capacity(19 + body.len());
     out.push(ContentType::Channel.to_byte());
     encode_block_ref(&mut out, &channel_ref);
     encode_block_ref(&mut out, &reply_to);
     encode_block_ref(&mut out, &continues);
-    out.extend_from_slice(body);
+    out.extend_from_slice(body.as_bytes());
     RemarkBytes::from_bytes(out)
 }
 
@@ -200,10 +197,9 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
             }
             let mut recipient_bytes = [0u8; 32];
             recipient_bytes.copy_from_slice(&data[1..33]);
-            let body = data[33..].to_vec();
-            if std::str::from_utf8(&body).is_err() {
-                return Err(SampError::InvalidUtf8);
-            }
+            let body_str =
+                std::str::from_utf8(&data[33..]).map_err(|_| SampError::InvalidUtf8)?;
+            let body = MessageBody::parse(body_str.to_string())?;
             Ok(Remark::Public {
                 recipient: Pubkey::from_bytes(recipient_bytes),
                 body,
@@ -230,8 +226,8 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
         0x03 => {
             let (name, description) = decode_channel_create(&data[1..])?;
             Ok(Remark::ChannelCreate {
-                name: name.to_string(),
-                description: description.to_string(),
+                name: ChannelName::parse(name.to_string())?,
+                description: ChannelDescription::parse(description.to_string())?,
             })
         }
         0x04 => {

@@ -12,12 +12,13 @@ proptest! {
         body in "[\\x20-\\x7e]{0,256}",
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
-        let remark = encode_public(&recipient, body.as_bytes());
+        let body_typed = MessageBody::parse(body.clone()).unwrap();
+        let remark = encode_public(&recipient, &body_typed);
         let Remark::Public { recipient: r, body: b } = decode_remark(&remark).unwrap() else {
             panic!("expected Public");
         };
         prop_assert_eq!(r, recipient);
-        prop_assert_eq!(b, body.as_bytes());
+        prop_assert_eq!(b.as_str(), body.as_str());
     }
 
     #[test]
@@ -25,13 +26,14 @@ proptest! {
         ch_block in any::<u32>(), ch_idx in any::<u16>(),
         rt_block in any::<u32>(), rt_idx in any::<u16>(),
         ct_block in any::<u32>(), ct_idx in any::<u16>(),
-        body in prop::collection::vec(any::<u8>(), 0..256),
+        body in "[\\x20-\\x7e]{0,256}",
     ) {
+        let body_typed = MessageBody::parse(body).unwrap();
         let remark = encode_channel_msg(
             br(ch_block, ch_idx),
             br(rt_block, rt_idx),
             br(ct_block, ct_idx),
-            &body,
+            &body_typed,
         );
         let parsed = decode_remark(&remark).unwrap();
         assert!(matches!(parsed, Remark::Channel { .. }));
@@ -42,35 +44,38 @@ proptest! {
         name in "[a-z]{1,32}",
         desc in "[a-z]{0,128}",
     ) {
-        let remark = encode_channel_create(&name, &desc).unwrap();
+        let name_typed = ChannelName::parse(name.clone()).unwrap();
+        let desc_typed = ChannelDescription::parse(desc.clone()).unwrap();
+        let remark = encode_channel_create(&name_typed, &desc_typed);
         let Remark::ChannelCreate { name: n, description: d } = decode_remark(&remark).unwrap() else {
             panic!("expected ChannelCreate");
         };
-        prop_assert_eq!(n, name);
-        prop_assert_eq!(d, desc);
+        prop_assert_eq!(n.as_str(), name.as_str());
+        prop_assert_eq!(d.as_str(), desc.as_str());
     }
 
     #[test]
-    fn encode_channel_create_name_over_32_returns_error(
+    fn channel_name_over_32_returns_error(
         name in "[a-z]{33,64}",
     ) {
-        prop_assert!(encode_channel_create(&name, "").is_err());
+        prop_assert!(ChannelName::parse(name).is_err());
     }
 
     #[test]
-    fn encode_channel_create_desc_over_128_returns_error(
+    fn channel_description_over_128_returns_error(
         desc in "[a-z]{129,256}",
     ) {
-        prop_assert!(encode_channel_create("ok", &desc).is_err());
+        prop_assert!(ChannelDescription::parse(desc).is_err());
     }
 
     #[test]
     fn any_encode_output_has_samp_version_nibble(
         recipient_bytes in prop::array::uniform32(any::<u8>()),
-        body in prop::collection::vec(any::<u8>(), 0..64),
+        body in "[\\x20-\\x7e]{0,64}",
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
-        let remark = encode_public(&recipient, &body);
+        let body_typed = MessageBody::parse(body).unwrap();
+        let remark = encode_public(&recipient, &body_typed);
         prop_assert_eq!(remark.as_bytes()[0] & 0xF0, 0x10);
     }
 
