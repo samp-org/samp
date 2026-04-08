@@ -2,18 +2,11 @@ use crate::error::SampError;
 
 pub const SAMP_VERSION: u8 = 0x10;
 
-pub const CONTENT_TYPE_PUBLIC: u8 = 0x10;
-pub const CONTENT_TYPE_ENCRYPTED: u8 = 0x11;
-pub const CONTENT_TYPE_THREAD: u8 = 0x12;
-pub const CONTENT_TYPE_CHANNEL_CREATE: u8 = 0x13;
-pub const CONTENT_TYPE_CHANNEL: u8 = 0x14;
-pub const CONTENT_TYPE_GROUP: u8 = 0x15;
-
 pub const CHANNEL_NAME_MAX: usize = 32;
 pub const CHANNEL_DESC_MAX: usize = 128;
 pub const CAPSULE_SIZE: usize = 33;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentType {
     Public,
     Encrypted,
@@ -25,15 +18,15 @@ pub enum ContentType {
 }
 
 impl ContentType {
-    pub fn to_byte(&self) -> u8 {
+    pub const fn to_byte(self) -> u8 {
         match self {
-            Self::Public => CONTENT_TYPE_PUBLIC,
-            Self::Encrypted => CONTENT_TYPE_ENCRYPTED,
-            Self::Thread => CONTENT_TYPE_THREAD,
-            Self::ChannelCreate => CONTENT_TYPE_CHANNEL_CREATE,
-            Self::Channel => CONTENT_TYPE_CHANNEL,
-            Self::Group => CONTENT_TYPE_GROUP,
-            Self::Application(b) => *b,
+            Self::Public => SAMP_VERSION | 0x00,
+            Self::Encrypted => SAMP_VERSION | 0x01,
+            Self::Thread => SAMP_VERSION | 0x02,
+            Self::ChannelCreate => SAMP_VERSION | 0x03,
+            Self::Channel => SAMP_VERSION | 0x04,
+            Self::Group => SAMP_VERSION | 0x05,
+            Self::Application(b) => b,
         }
     }
 
@@ -96,20 +89,20 @@ pub struct Remark {
 
 pub fn encode_public(recipient: &[u8; 32], body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(33 + body.len());
-    out.push(CONTENT_TYPE_PUBLIC);
+    out.push(ContentType::Public.to_byte());
     out.extend_from_slice(recipient);
     out.extend_from_slice(body);
     out
 }
 
 pub fn encode_encrypted(
-    content_type: u8,
+    content_type: ContentType,
     view_tag: u8,
     nonce: &[u8; 12],
     encrypted_content: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(14 + encrypted_content.len());
-    out.push(content_type);
+    out.push(content_type.to_byte());
     out.push(view_tag);
     out.extend_from_slice(nonce);
     out.extend_from_slice(encrypted_content);
@@ -124,7 +117,7 @@ pub fn encode_channel_create(name: &str, description: &str) -> Result<Vec<u8>, S
         return Err(SampError::InvalidChannelDesc);
     }
     let mut out = Vec::with_capacity(3 + name.len() + description.len());
-    out.push(CONTENT_TYPE_CHANNEL_CREATE);
+    out.push(ContentType::ChannelCreate.to_byte());
     out.push(name.len() as u8);
     out.extend_from_slice(name.as_bytes());
     out.push(description.len() as u8);
@@ -139,7 +132,7 @@ pub fn encode_channel_msg(
     body: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(19 + body.len());
-    out.push(CONTENT_TYPE_CHANNEL);
+    out.push(ContentType::Channel.to_byte());
     encode_block_ref(&mut out, &channel_ref);
     encode_block_ref(&mut out, &reply_to);
     encode_block_ref(&mut out, &continues);
@@ -154,7 +147,7 @@ pub fn encode_group(
     ciphertext: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(45 + capsules.len() + ciphertext.len());
-    out.push(CONTENT_TYPE_GROUP);
+    out.push(ContentType::Group.to_byte());
     out.extend_from_slice(nonce);
     out.extend_from_slice(eph_pubkey);
     out.extend_from_slice(capsules);

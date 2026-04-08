@@ -1,18 +1,49 @@
 import { SampError } from "./error.js";
 
 export const SAMP_VERSION = 0x10;
-export const CONTENT_TYPE_PUBLIC = 0x10;
-export const CONTENT_TYPE_ENCRYPTED = 0x11;
-export const CONTENT_TYPE_THREAD = 0x12;
-export const CONTENT_TYPE_CHANNEL_CREATE = 0x13;
-export const CONTENT_TYPE_CHANNEL = 0x14;
-export const CONTENT_TYPE_GROUP = 0x15;
 
 export const THREAD_HEADER_SIZE = 18;
 export const CHANNEL_HEADER_SIZE = 12;
 export const CHANNEL_NAME_MAX = 32;
 export const CHANNEL_DESC_MAX = 128;
 export const CAPSULE_SIZE = 33;
+
+/**
+ * ContentType is the typed enumeration of SAMP message content types.
+ * It is the single representation of message kind across the TypeScript SDK.
+ */
+export enum ContentType {
+  Public = 0x10,
+  Encrypted = 0x11,
+  Thread = 0x12,
+  ChannelCreate = 0x13,
+  Channel = 0x14,
+  Group = 0x15,
+}
+
+/**
+ * Parse a wire byte into a ContentType, validating the SAMP version nibble
+ * and rejecting reserved values.
+ */
+export function contentTypeFromByte(b: number): ContentType {
+  if ((b & 0xf0) !== SAMP_VERSION) {
+    throw new SampError(`unsupported version: 0x${(b & 0xf0).toString(16).padStart(2, "0")}`);
+  }
+  switch (b & 0x0f) {
+    case 0x00: return ContentType.Public;
+    case 0x01: return ContentType.Encrypted;
+    case 0x02: return ContentType.Thread;
+    case 0x03: return ContentType.ChannelCreate;
+    case 0x04: return ContentType.Channel;
+    case 0x05: return ContentType.Group;
+    case 0x06:
+    case 0x07:
+      throw new SampError(`reserved content type: 0x${b.toString(16)}`);
+    default:
+      // Application(0x18..0x1F) — accepted but not modeled as a separate variant.
+      return b as ContentType;
+  }
+}
 
 export interface BlockRef {
   block: number;
@@ -22,7 +53,7 @@ export interface BlockRef {
 export const BLOCK_REF_ZERO: BlockRef = { block: 0, index: 0 };
 
 export interface Remark {
-  contentType: number;
+  contentType: ContentType;
   recipient: Uint8Array;
   viewTag: number;
   nonce: Uint8Array;
@@ -45,14 +76,14 @@ function decodeBlockRef(data: Uint8Array, offset: number): BlockRef {
 
 export function encodePublic(recipient: Uint8Array, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(1 + 32 + body.length);
-  out[0] = CONTENT_TYPE_PUBLIC;
+  out[0] = ContentType.Public;
   out.set(recipient, 1);
   out.set(body, 33);
   return out;
 }
 
 export function encodeEncrypted(
-  contentType: number,
+  contentType: ContentType,
   viewTag: number,
   nonce: Uint8Array,
   content: Uint8Array,
@@ -72,7 +103,7 @@ export function encodeChannelMsg(
   body: Uint8Array,
 ): Uint8Array {
   const out = new Uint8Array(19 + body.length);
-  out[0] = CONTENT_TYPE_CHANNEL;
+  out[0] = ContentType.Channel;
   encodeBlockRef(out, 1, channelRef);
   encodeBlockRef(out, 7, replyTo);
   encodeBlockRef(out, 13, continues);
@@ -86,7 +117,7 @@ export function encodeChannelCreate(name: string, description: string): Uint8Arr
   if (nb.length === 0 || nb.length > CHANNEL_NAME_MAX) throw new SampError(`channel name must be 1-${CHANNEL_NAME_MAX} bytes`);
   if (db.length > CHANNEL_DESC_MAX) throw new SampError(`channel description must be 0-${CHANNEL_DESC_MAX} bytes`);
   const out = new Uint8Array(3 + nb.length + db.length);
-  out[0] = CONTENT_TYPE_CHANNEL_CREATE;
+  out[0] = ContentType.ChannelCreate;
   out[1] = nb.length;
   out.set(nb, 2);
   out[2 + nb.length] = db.length;
@@ -101,7 +132,7 @@ export function encodeGroup(
   ciphertext: Uint8Array,
 ): Uint8Array {
   const out = new Uint8Array(45 + capsules.length + ciphertext.length);
-  out[0] = CONTENT_TYPE_GROUP;
+  out[0] = ContentType.Group;
   out.set(nonce, 1);
   out.set(ephPubkey, 13);
   out.set(capsules, 45);
@@ -111,74 +142,69 @@ export function encodeGroup(
 
 export function decodeRemark(data: Uint8Array): Remark {
   if (data.length === 0) throw new SampError("insufficient data");
-  const ct = data[0];
-  if ((ct & 0xf0) !== SAMP_VERSION) {
-    throw new SampError(`unsupported version: 0x${(ct & 0xf0).toString(16).padStart(2, "0")}`);
-  }
-  const lower = ct & 0x0f;
+  const ct = contentTypeFromByte(data[0]);
 
-  if (lower === 0x00) {
-    if (data.length < 33) throw new SampError("insufficient data for public message");
-    const body = data.slice(33);
-    new TextDecoder("utf-8", { fatal: true }).decode(body);
-    return {
-      contentType: ct,
-      recipient: data.slice(1, 33),
-      viewTag: 0,
-      nonce: new Uint8Array(12),
-      content: body,
-    };
+  switch (ct) {
+    case ContentType.Public: {
+      if (data.length < 33) throw new SampError("insufficient data for public message");
+      const body = data.slice(33);
+      new TextDecoder("utf-8", { fatal: true }).decode(body);
+      return {
+        contentType: ct,
+        recipient: data.slice(1, 33),
+        viewTag: 0,
+        nonce: new Uint8Array(12),
+        content: body,
+      };
+    }
+    case ContentType.Encrypted:
+    case ContentType.Thread: {
+      if (data.length < 14) throw new SampError("insufficient data for encrypted message");
+      return {
+        contentType: ct,
+        recipient: new Uint8Array(32),
+        viewTag: data[1],
+        nonce: data.slice(2, 14),
+        content: data.slice(14),
+      };
+    }
+    case ContentType.ChannelCreate: {
+      return {
+        contentType: ct,
+        recipient: new Uint8Array(32),
+        viewTag: 0,
+        nonce: new Uint8Array(12),
+        content: data.slice(1),
+      };
+    }
+    case ContentType.Channel: {
+      if (data.length < 19) throw new SampError("insufficient data for channel message");
+      const ref_ = decodeBlockRef(data, 1);
+      const recipient = new Uint8Array(32);
+      const dv = new DataView(recipient.buffer);
+      dv.setUint32(0, ref_.block, true);
+      dv.setUint16(4, ref_.index, true);
+      return {
+        contentType: ct,
+        recipient,
+        viewTag: 0,
+        nonce: new Uint8Array(12),
+        content: data.slice(7),
+      };
+    }
+    case ContentType.Group: {
+      if (data.length < 45) throw new SampError("insufficient data for group message");
+      return {
+        contentType: ct,
+        recipient: new Uint8Array(32),
+        viewTag: 0,
+        nonce: data.slice(1, 13),
+        content: data.slice(13),
+      };
+    }
+    default:
+      throw new SampError(`unhandled content type: 0x${(ct as number).toString(16)}`);
   }
-
-  if (lower === 0x01 || lower === 0x02) {
-    if (data.length < 14) throw new SampError("insufficient data for encrypted message");
-    return {
-      contentType: ct,
-      recipient: new Uint8Array(32),
-      viewTag: data[1],
-      nonce: data.slice(2, 14),
-      content: data.slice(14),
-    };
-  }
-
-  if (lower === 0x03) {
-    return {
-      contentType: ct,
-      recipient: new Uint8Array(32),
-      viewTag: 0,
-      nonce: new Uint8Array(12),
-      content: data.slice(1),
-    };
-  }
-
-  if (lower === 0x04) {
-    if (data.length < 19) throw new SampError("insufficient data for channel message");
-    const ref_ = decodeBlockRef(data, 1);
-    const recipient = new Uint8Array(32);
-    const dv = new DataView(recipient.buffer);
-    dv.setUint32(0, ref_.block, true);
-    dv.setUint16(4, ref_.index, true);
-    return {
-      contentType: ct,
-      recipient,
-      viewTag: 0,
-      nonce: new Uint8Array(12),
-      content: data.slice(7),
-    };
-  }
-
-  if (lower === 0x05) {
-    if (data.length < 45) throw new SampError("insufficient data for group message");
-    return {
-      contentType: ct,
-      recipient: new Uint8Array(32),
-      viewTag: 0,
-      nonce: data.slice(1, 13),
-      content: data.slice(13),
-    };
-  }
-
-  throw new SampError(`reserved content type: 0x${ct.toString(16)}`);
 }
 
 export function encodeThreadContent(

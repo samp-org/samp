@@ -14,10 +14,7 @@ import {
   decodeGroupMembers,
   encodeGroup,
   encryptForGroup,
-  CONTENT_TYPE_PUBLIC,
-  CONTENT_TYPE_ENCRYPTED,
-  CONTENT_TYPE_CHANNEL,
-  CONTENT_TYPE_GROUP,
+  ContentType,
   sr25519SigningScalar,
   publicFromSeed,
   encrypt,
@@ -80,7 +77,7 @@ describe("public message", () => {
 
   it("decode", () => {
     const r = decodeRemark(h(vectors.public_message.remark));
-    expect(r.contentType).toBe(CONTENT_TYPE_PUBLIC);
+    expect(r.contentType).toBe(ContentType.Public);
     expect(toHex(r.content)).toBe(vectors.public_message.body.replace("0x", ""));
   });
 });
@@ -108,7 +105,7 @@ describe("encrypted message", () => {
   it("remark", () => {
     const content = h(vectors.encrypted_message.encrypted_content);
     const remark = encodeEncrypted(
-      CONTENT_TYPE_ENCRYPTED,
+      ContentType.Encrypted,
       vectors.encrypted_message.view_tag,
       h(vectors.encrypted_message.nonce),
       content,
@@ -189,7 +186,7 @@ describe("channel message", () => {
 
   it("decode", () => {
     const r = decodeRemark(h(vectors.channel_message.remark));
-    expect(r.contentType).toBe(CONTENT_TYPE_CHANNEL);
+    expect(r.contentType).toBe(ContentType.Channel);
   });
 });
 
@@ -210,7 +207,7 @@ describe("channel create", () => {
 describe("group message", () => {
   it("remark decode", () => {
     const r = decodeRemark(h(vectors.group_message.remark));
-    expect(r.contentType).toBe(CONTENT_TYPE_GROUP);
+    expect(r.contentType).toBe(ContentType.Group);
     expect(toHex(r.nonce)).toBe(vectors.group_message.nonce.replace("0x", ""));
   });
 
@@ -258,13 +255,13 @@ describe("group message", () => {
 describe("edge cases", () => {
   it("empty body public", () => {
     const r = decodeRemark(h(vectors.edge_cases.empty_body_public));
-    expect(r.contentType).toBe(CONTENT_TYPE_PUBLIC);
+    expect(r.contentType).toBe(ContentType.Public);
     expect(r.content.length).toBe(0);
   });
 
   it("min encrypted", () => {
     const r = decodeRemark(h(vectors.edge_cases.min_encrypted));
-    expect(r.contentType).toBe(CONTENT_TYPE_ENCRYPTED);
+    expect(r.contentType).toBe(ContentType.Encrypted);
   });
 
   it("empty desc channel create", () => {
@@ -325,7 +322,7 @@ describe("group encrypt/decrypt", () => {
     const remark = encodeGroup(nonce, ephPubkey, capsules, ciphertext);
 
     const r = decodeRemark(remark);
-    expect(r.contentType).toBe(CONTENT_TYPE_GROUP);
+    expect(r.contentType).toBe(ContentType.Group);
 
     const bobScalar = sr25519SigningScalar(bobSeed);
     const decrypted = decryptFromGroup(r.content, bobScalar, r.nonce, 2);

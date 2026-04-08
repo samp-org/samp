@@ -220,7 +220,7 @@ fn main() {
     assert_eq!(&encrypted_content[..32], eph_pubkey.to_bytes());
     assert_eq!(&encrypted_content[32..64], sealed_to);
 
-    let enc_remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, &nonce, &encrypted_content);
+    let enc_remark = encode_encrypted(ContentType::Encrypted, view_tag, &nonce, &encrypted_content);
 
     let parsed = decode_remark(&enc_remark).unwrap();
     let decrypted = encryption::decrypt(&parsed, &bob_scalar).unwrap();
@@ -243,7 +243,7 @@ fn main() {
     let thread_view_tag =
         encryption::compute_view_tag(&alice_seed, &bob_pubkey, &thread_nonce).unwrap();
     let thread_remark = encode_encrypted(
-        CONTENT_TYPE_THREAD,
+        ContentType::Thread,
         thread_view_tag,
         &thread_nonce,
         &thread_encrypted,
@@ -344,7 +344,7 @@ fn main() {
     // === Edge cases ===
     let empty_body_public = encode_public(&bob_pub, b"");
     let min_encrypted = encryption::encrypt(b"", &bob_pubkey, &nonce, &alice_seed).unwrap();
-    let min_enc_remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, &nonce, &min_encrypted);
+    let min_enc_remark = encode_encrypted(ContentType::Encrypted, view_tag, &nonce, &min_encrypted);
     let empty_desc_create = encode_channel_create("test", "").unwrap();
 
     // === Negative cases ===

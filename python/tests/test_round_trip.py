@@ -17,11 +17,7 @@ from samp import (
 )
 from samp.encryption import compute_view_tag, decrypt_as_sender
 from samp.wire import (
-    CONTENT_TYPE_CHANNEL,
-    CONTENT_TYPE_ENCRYPTED,
-    CONTENT_TYPE_GROUP,
-    CONTENT_TYPE_PUBLIC,
-    CONTENT_TYPE_THREAD,
+    ContentType,
     decode_channel_content,
     decode_channel_create,
     decode_group_content,
@@ -42,9 +38,9 @@ def test_public_message_roundtrip():
     pub_b = samp_crypto.public_from_seed(SEED_B)
     body = b"Hello Bob!"
     remark = encode_public(pub_b, body)
-    assert remark[0] == CONTENT_TYPE_PUBLIC
+    assert remark[0] == ContentType.PUBLIC
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_PUBLIC
+    assert parsed.content_type == ContentType.PUBLIC
     assert parsed.recipient == pub_b
     assert parsed.content == body
 
@@ -57,10 +53,10 @@ def test_encrypted_message_roundtrip():
 
     encrypted_content = encrypt(plaintext, pub_b, nonce, SEED_A)
     view_tag = compute_view_tag(SEED_A, pub_b, nonce)
-    remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, nonce, encrypted_content)
+    remark = encode_encrypted(ContentType.ENCRYPTED, view_tag, nonce, encrypted_content)
 
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
+    assert parsed.content_type == ContentType.ENCRYPTED
     assert parsed.view_tag == view_tag
     assert parsed.nonce == nonce
 
@@ -86,7 +82,7 @@ def test_sender_self_decryption():
     plaintext = b"sender can read this too"
     encrypted = encrypt(plaintext, pub_b, nonce, SEED_A)
     view_tag = compute_view_tag(SEED_A, pub_b, nonce)
-    remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, nonce, encrypted)
+    remark = encode_encrypted(ContentType.ENCRYPTED, view_tag, nonce, encrypted)
     parsed = decode_remark(remark)
     decrypted = decrypt_as_sender(parsed, SEED_A)
     assert decrypted == plaintext
@@ -122,10 +118,10 @@ def test_channel_message_roundtrip():
     continues = (98, 0)
     body = b"Did he use MEV shield?"
     remark = encode_channel_msg(ch_ref, reply_to, continues, body)
-    assert remark[0] == CONTENT_TYPE_CHANNEL
+    assert remark[0] == ContentType.CHANNEL
     assert len(remark) == 19 + len(body)
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_CHANNEL
+    assert parsed.content_type == ContentType.CHANNEL
 
 
 def test_channel_create_roundtrip():
@@ -162,7 +158,7 @@ def test_group_root_message_roundtrip():
     assert remark[0] == 0x15
 
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_GROUP
+    assert parsed.content_type == ContentType.GROUP
     assert parsed.nonce == nonce
 
     bob_scalar = samp_crypto.sr25519_signing_scalar(SEED_B)
@@ -196,7 +192,7 @@ def test_group_message_roundtrip():
     assert remark[0] == 0x15
 
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_GROUP
+    assert parsed.content_type == ContentType.GROUP
 
     bob_scalar = samp_crypto.sr25519_signing_scalar(SEED_B)
     decrypted = decrypt_from_group(parsed.content, bob_scalar, nonce, 2)

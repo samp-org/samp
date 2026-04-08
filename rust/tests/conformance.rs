@@ -189,7 +189,7 @@ fn conformance_encrypted_encode() {
     let vt = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &nonce).unwrap();
     assert_eq!(vt, v.encrypted_message.view_tag);
 
-    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &content);
+    let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &content);
     assert_eq!(remark, h(&v.encrypted_message.remark));
 }
 
@@ -275,7 +275,7 @@ fn conformance_thread_message() {
     assert_eq!(encrypted, h(&v.thread_message.encrypted_content));
 
     let vt = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &nonce).unwrap();
-    let remark_bytes = encode_encrypted(CONTENT_TYPE_THREAD, vt, &nonce, &encrypted);
+    let remark_bytes = encode_encrypted(ContentType::Thread, vt, &nonce, &encrypted);
     let parsed_remark = decode_remark(&remark_bytes).unwrap();
     let decrypted = encryption::decrypt(&parsed_remark, &bob_scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(&decrypted).unwrap();

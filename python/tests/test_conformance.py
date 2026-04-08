@@ -11,10 +11,7 @@ from samp import (
 )
 from samp.encryption import compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group
 from samp.wire import (
-    CONTENT_TYPE_CHANNEL,
-    CONTENT_TYPE_ENCRYPTED,
-    CONTENT_TYPE_GROUP,
-    CONTENT_TYPE_PUBLIC,
+    ContentType,
     decode_channel_create,
     decode_thread_content,
     encode_channel_create,
@@ -60,7 +57,7 @@ def test_public_message_decoding():
     v = load_vectors()
     remark = h(v["public_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_PUBLIC
+    assert parsed.content_type == ContentType.PUBLIC
     assert parsed.content == h(v["public_message"]["body"])
 
 def test_encrypted_message_encoding():
@@ -76,7 +73,7 @@ def test_encrypted_message_encoding():
     view_tag = compute_view_tag(alice_seed, bob_pub, nonce)
     assert view_tag == v["encrypted_message"]["view_tag"]
 
-    remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, nonce, encrypted_content)
+    remark = encode_encrypted(ContentType.ENCRYPTED, view_tag, nonce, encrypted_content)
     assert remark == h(v["encrypted_message"]["remark"])
 
 def test_encrypted_message_intermediates():
@@ -90,7 +87,7 @@ def test_encrypted_message_decoding():
     v = load_vectors()
     remark = h(v["encrypted_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
+    assert parsed.content_type == ContentType.ENCRYPTED
     assert parsed.view_tag == v["encrypted_message"]["view_tag"]
     assert parsed.nonce == h(v["encrypted_message"]["nonce"])
 
@@ -151,7 +148,7 @@ def test_channel_message_decoding():
     v = load_vectors()
     remark = h(v["channel_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_CHANNEL
+    assert parsed.content_type == ContentType.CHANNEL
 
 def test_channel_create_encoding():
     v = load_vectors()
@@ -171,7 +168,7 @@ def test_conformance_group_remark():
     v = load_vectors()
     remark = h(v["group_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_GROUP
+    assert parsed.content_type == ContentType.GROUP
 
 def test_conformance_group_member_list():
     v = load_vectors()
@@ -190,13 +187,13 @@ def test_conformance_group_decrypt_by_member():
 def test_edge_empty_body_public():
     v = load_vectors()
     parsed = decode_remark(h(v["edge_cases"]["empty_body_public"]))
-    assert parsed.content_type == CONTENT_TYPE_PUBLIC
+    assert parsed.content_type == ContentType.PUBLIC
     assert parsed.content == b""
 
 def test_edge_min_encrypted():
     v = load_vectors()
     parsed = decode_remark(h(v["edge_cases"]["min_encrypted"]))
-    assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
+    assert parsed.content_type == ContentType.ENCRYPTED
 
 def test_edge_empty_desc_channel_create():
     v = load_vectors()

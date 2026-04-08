@@ -7,7 +7,6 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, ContentType,
-    CONTENT_TYPE_ENCRYPTED, CONTENT_TYPE_THREAD,
 };
 
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -64,7 +63,7 @@ fn encrypted_message_roundtrip() {
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
-    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x11);
 
     let decoded = decode_remark(&remark).unwrap();
@@ -101,7 +100,7 @@ fn thread_message_roundtrip() {
     let encrypted = encrypt(&thread_content, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
-    let remark = encode_encrypted(CONTENT_TYPE_THREAD, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(ContentType::Thread, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x12);
 
     let decoded = decode_remark(&remark).unwrap();
@@ -331,7 +330,7 @@ fn encrypted_message_unreadable_by_third_party() {
     let plaintext = b"secret between Alice and Bob";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
-    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     let decoded = decode_remark(&remark).unwrap();
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
@@ -348,7 +347,7 @@ fn sender_can_decrypt_own_message() {
     let plaintext = b"my own message";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
-    let remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, vt, &nonce, &encrypted);
+    let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     let decoded = decode_remark(&remark).unwrap();
 
     let decrypted = decrypt_as_sender(&decoded, &alice_seed()).unwrap();

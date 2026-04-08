@@ -8,14 +8,7 @@ import (
 )
 
 const (
-	SAMPVersion = 0x10
-
-	ContentTypePublic        = 0x10
-	ContentTypeEncrypted     = 0x11
-	ContentTypeThread        = 0x12
-	ContentTypeChannelCreate = 0x13
-	ContentTypeChannel       = 0x14
-	ContentTypeGroup         = 0x15
+	SAMPVersion byte = 0x10
 
 	ChannelHeaderSize = 12
 	ThreadHeaderSize  = 18
@@ -24,6 +17,38 @@ const (
 	ChannelDescMax = 128
 	CapsuleSize    = 33
 )
+
+// ContentType is the typed enumeration of SAMP message content types.
+// It is the single representation of message kind across the Go SDK.
+type ContentType byte
+
+const (
+	ContentTypePublic        ContentType = 0x10
+	ContentTypeEncrypted     ContentType = 0x11
+	ContentTypeThread        ContentType = 0x12
+	ContentTypeChannelCreate ContentType = 0x13
+	ContentTypeChannel       ContentType = 0x14
+	ContentTypeGroup         ContentType = 0x15
+)
+
+// Byte returns the on-wire byte representation of this content type.
+func (c ContentType) Byte() byte { return byte(c) }
+
+// ContentTypeFromByte parses a wire byte into a ContentType, validating
+// the SAMP version nibble and rejecting reserved values.
+func ContentTypeFromByte(b byte) (ContentType, error) {
+	if b&0xF0 != SAMPVersion {
+		return 0, errVersion(b & 0xF0)
+	}
+	switch b & 0x0F {
+	case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05:
+		return ContentType(b), nil
+	case 0x06, 0x07:
+		return 0, errReserved(b)
+	default:
+		return ContentType(b), nil
+	}
+}
 
 var ErrInsufficientData = errors.New("samp: insufficient data")
 var ErrInvalidUTF8 = errors.New("samp: content is not valid UTF-8")
@@ -58,7 +83,7 @@ func decodeBlockRef(data []byte) BlockRef {
 }
 
 type Remark struct {
-	ContentType byte
+	ContentType ContentType
 	Recipient   [32]byte
 	ViewTag     byte
 	Nonce       [12]byte
@@ -67,15 +92,15 @@ type Remark struct {
 
 func EncodePublic(recipient [32]byte, body []byte) []byte {
 	out := make([]byte, 0, 33+len(body))
-	out = append(out, ContentTypePublic)
+	out = append(out, ContentTypePublic.Byte())
 	out = append(out, recipient[:]...)
 	out = append(out, body...)
 	return out
 }
 
-func EncodeEncrypted(contentType, viewTag byte, nonce [12]byte, content []byte) []byte {
+func EncodeEncrypted(contentType ContentType, viewTag byte, nonce [12]byte, content []byte) []byte {
 	out := make([]byte, 0, 14+len(content))
-	out = append(out, contentType, viewTag)
+	out = append(out, contentType.Byte(), viewTag)
 	out = append(out, nonce[:]...)
 	out = append(out, content...)
 	return out
@@ -83,7 +108,7 @@ func EncodeEncrypted(contentType, viewTag byte, nonce [12]byte, content []byte) 
 
 func EncodeChannelMsg(channelRef, replyTo, continues BlockRef, body []byte) []byte {
 	out := make([]byte, 19, 19+len(body))
-	out[0] = ContentTypeChannel
+	out[0] = ContentTypeChannel.Byte()
 	encodeBlockRef(out[1:7], channelRef)
 	encodeBlockRef(out[7:13], replyTo)
 	encodeBlockRef(out[13:19], continues)
@@ -101,7 +126,7 @@ func EncodeChannelCreate(name, description string) ([]byte, error) {
 		return nil, ErrInvalidChannelDesc
 	}
 	out := make([]byte, 0, 3+len(nb)+len(db))
-	out = append(out, ContentTypeChannelCreate, byte(len(nb)))
+	out = append(out, ContentTypeChannelCreate.Byte(), byte(len(nb)))
 	out = append(out, nb...)
 	out = append(out, byte(len(db)))
 	out = append(out, db...)
@@ -112,14 +137,13 @@ func DecodeRemark(data []byte) (*Remark, error) {
 	if len(data) == 0 {
 		return nil, ErrInsufficientData
 	}
-	ct := data[0]
-	if ct&0xF0 != SAMPVersion {
-		return nil, errVersion(ct & 0xF0)
+	ct, err := ContentTypeFromByte(data[0])
+	if err != nil {
+		return nil, err
 	}
-	lower := ct & 0x0F
 
-	switch lower {
-	case 0x00:
+	switch ct {
+	case ContentTypePublic:
 		if len(data) < 33 {
 			return nil, ErrInsufficientData
 		}
@@ -133,7 +157,7 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = body
 		return &r, nil
 
-	case 0x01, 0x02:
+	case ContentTypeEncrypted, ContentTypeThread:
 		if len(data) < 14 {
 			return nil, ErrInsufficientData
 		}
@@ -144,13 +168,13 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = data[14:]
 		return &r, nil
 
-	case 0x03:
+	case ContentTypeChannelCreate:
 		var r Remark
 		r.ContentType = ct
 		r.Content = data[1:]
 		return &r, nil
 
-	case 0x04:
+	case ContentTypeChannel:
 		if len(data) < 19 {
 			return nil, ErrInsufficientData
 		}
@@ -162,7 +186,7 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		r.Content = data[7:]
 		return &r, nil
 
-	case 0x05:
+	case ContentTypeGroup:
 		if len(data) < 45 {
 			return nil, ErrInsufficientData
 		}
@@ -173,7 +197,7 @@ func DecodeRemark(data []byte) (*Remark, error) {
 		return &r, nil
 
 	default:
-		return nil, errReserved(ct)
+		return nil, errReserved(byte(ct))
 	}
 }
 
@@ -234,7 +258,7 @@ func DecodeChannelCreate(data []byte) (name, description string, err error) {
 
 func EncodeGroup(nonce [12]byte, ephPubkey [32]byte, capsules []byte, ciphertext []byte) []byte {
 	out := make([]byte, 0, 45+len(capsules)+len(ciphertext))
-	out = append(out, ContentTypeGroup)
+	out = append(out, ContentTypeGroup.Byte())
 	out = append(out, nonce[:]...)
 	out = append(out, ephPubkey[:]...)
 	out = append(out, capsules...)

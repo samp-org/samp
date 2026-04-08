@@ -498,7 +498,7 @@ func TestGroupRegularMessageRoundtrip(t *testing.T) {
 
 	r, err := DecodeRemark(remark)
 	require.NoError(t, err)
-	require.Equal(t, byte(ContentTypeGroup), r.ContentType)
+	require.Equal(t, ContentTypeGroup, r.ContentType)
 
 	bobScalar := Sr25519SigningScalar(h32("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
 	decrypted, err := DecryptFromGroup(r.Content, bobScalar.Encode(nil), r.Nonce[:], len(members))

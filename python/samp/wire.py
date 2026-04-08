@@ -1,23 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 from samp.error import SampError
 
 SAMP_VERSION = 0x10
-
-CONTENT_TYPE_PUBLIC = 0x10
-CONTENT_TYPE_ENCRYPTED = 0x11
-CONTENT_TYPE_THREAD = 0x12
-CONTENT_TYPE_CHANNEL_CREATE = 0x13
-CONTENT_TYPE_CHANNEL = 0x14
-CONTENT_TYPE_GROUP = 0x15
 
 CHANNEL_HEADER_SIZE = 12
 CHANNEL_NAME_MAX = 32
 CHANNEL_DESC_MAX = 128
 THREAD_HEADER_SIZE = 18
 CAPSULE_SIZE = 33
+
+
+class ContentType(IntEnum):
+    """Typed enumeration of SAMP message content types.
+
+    The single representation of message kind across the Python SDK.
+    """
+
+    PUBLIC = 0x10
+    ENCRYPTED = 0x11
+    THREAD = 0x12
+    CHANNEL_CREATE = 0x13
+    CHANNEL = 0x14
+    GROUP = 0x15
+
+
+def content_type_from_byte(b: int) -> ContentType:
+    """Parse a wire byte into a ContentType, validating the SAMP version
+    nibble and rejecting reserved values."""
+    if b & 0xF0 != SAMP_VERSION:
+        raise SampError(f"unsupported version: 0x{b & 0xF0:02x}")
+    lower = b & 0x0F
+    if lower in (0x06, 0x07):
+        raise SampError(f"reserved content type: 0x{b:02x}")
+    return ContentType(b)
 
 
 def _encode_ref(ref: tuple[int, int]) -> bytes:
@@ -33,7 +52,7 @@ def _decode_ref(data: bytes, offset: int) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class Remark:
-    content_type: int
+    content_type: ContentType
     recipient: bytes
     view_tag: int
     nonce: bytes
@@ -41,10 +60,10 @@ class Remark:
 
 
 def encode_public(recipient: bytes, body: bytes) -> bytes:
-    return bytes([CONTENT_TYPE_PUBLIC]) + recipient + body
+    return bytes([ContentType.PUBLIC]) + recipient + body
 
 
-def encode_encrypted(content_type: int, view_tag: int, nonce: bytes, encrypted_content: bytes) -> bytes:
+def encode_encrypted(content_type: ContentType, view_tag: int, nonce: bytes, encrypted_content: bytes) -> bytes:
     return bytes([content_type, view_tag]) + nonce + encrypted_content
 
 
@@ -55,7 +74,7 @@ def encode_channel_msg(
     body: bytes,
 ) -> bytes:
     return (
-        bytes([CONTENT_TYPE_CHANNEL])
+        bytes([ContentType.CHANNEL])
         + _encode_ref(channel_ref)
         + _encode_ref(reply_to)
         + _encode_ref(continues)
@@ -71,7 +90,7 @@ def encode_channel_create(name: str, description: str) -> bytes:
     if len(desc_bytes) > CHANNEL_DESC_MAX:
         raise SampError(f"channel description must be 0-{CHANNEL_DESC_MAX} bytes")
     return (
-        bytes([CONTENT_TYPE_CHANNEL_CREATE, len(name_bytes)])
+        bytes([ContentType.CHANNEL_CREATE, len(name_bytes)])
         + name_bytes
         + bytes([len(desc_bytes)])
         + desc_bytes
@@ -79,54 +98,50 @@ def encode_channel_create(name: str, description: str) -> bytes:
 
 
 def encode_group(nonce: bytes, eph_pubkey: bytes, capsules: bytes, ciphertext: bytes) -> bytes:
-    return bytes([CONTENT_TYPE_GROUP]) + nonce + eph_pubkey + capsules + ciphertext
+    return bytes([ContentType.GROUP]) + nonce + eph_pubkey + capsules + ciphertext
 
 
 def decode_remark(data: bytes) -> Remark:
     if len(data) == 0:
         raise SampError("insufficient data")
 
-    ct_byte = data[0]
-    if ct_byte & 0xF0 != SAMP_VERSION:
-        raise SampError(f"unsupported version: 0x{ct_byte & 0xF0:02x}")
+    ct = content_type_from_byte(data[0])
 
-    lower = ct_byte & 0x0F
-
-    if lower == 0x00:
+    if ct == ContentType.PUBLIC:
         if len(data) < 33:
             raise SampError("insufficient data for public message")
         recipient = data[1:33]
         body = data[33:]
         body.decode("utf-8")
         return Remark(
-            content_type=ct_byte,
+            content_type=ct,
             recipient=recipient,
             view_tag=0,
             nonce=b"\x00" * 12,
             content=body,
         )
 
-    if lower in (0x01, 0x02):
+    if ct in (ContentType.ENCRYPTED, ContentType.THREAD):
         if len(data) < 14:
             raise SampError("insufficient data for encrypted message")
         return Remark(
-            content_type=ct_byte,
+            content_type=ct,
             recipient=b"\x00" * 32,
             view_tag=data[1],
             nonce=data[2:14],
             content=data[14:],
         )
 
-    if lower == 0x03:
+    if ct == ContentType.CHANNEL_CREATE:
         return Remark(
-            content_type=ct_byte,
+            content_type=ct,
             recipient=b"\x00" * 32,
             view_tag=0,
             nonce=b"\x00" * 12,
             content=data[1:],
         )
 
-    if lower == 0x04:
+    if ct == ContentType.CHANNEL:
         if len(data) < 19:
             raise SampError("insufficient data for channel message")
         block_num = int.from_bytes(data[1:5], "little")
@@ -137,25 +152,25 @@ def decode_remark(data: bytes) -> Remark:
             + b"\x00" * 26
         )
         return Remark(
-            content_type=ct_byte,
+            content_type=ct,
             recipient=recipient,
             view_tag=0,
             nonce=b"\x00" * 12,
             content=data[7:],
         )
 
-    if lower == 0x05:
+    if ct == ContentType.GROUP:
         if len(data) < 45:
             raise SampError("insufficient data for group message")
         return Remark(
-            content_type=ct_byte,
+            content_type=ct,
             recipient=b"\x00" * 32,
             view_tag=0,
             nonce=data[1:13],
             content=data[13:],
         )
 
-    raise SampError(f"reserved content type: 0x{ct_byte:02x}")
+    raise SampError(f"unhandled content type: 0x{int(ct):02x}")
 
 
 def encode_thread_content(

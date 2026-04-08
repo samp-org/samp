@@ -22,6 +22,5 @@ pub use wire::{
     encode_channel_content, encode_channel_create, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
     ContentType, Remark, CAPSULE_SIZE, CHANNEL_DESC_MAX, CHANNEL_HEADER_SIZE, CHANNEL_NAME_MAX,
-    CONTENT_TYPE_CHANNEL, CONTENT_TYPE_CHANNEL_CREATE, CONTENT_TYPE_ENCRYPTED, CONTENT_TYPE_GROUP,
-    CONTENT_TYPE_PUBLIC, CONTENT_TYPE_THREAD, SAMP_VERSION, THREAD_HEADER_SIZE,
+    SAMP_VERSION, THREAD_HEADER_SIZE,
 };
