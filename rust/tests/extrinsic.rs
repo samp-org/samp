@@ -1,6 +1,6 @@
 use samp::extrinsic::{build_signed_extrinsic, extract_call, extract_signer, ChainParams};
 use samp::scale::encode_compact;
-use samp::{GenesisHash, Pubkey, Signature};
+use samp::{ExtrinsicBytes, GenesisHash, Pubkey, Signature};
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use serde::Deserialize;
@@ -117,7 +117,7 @@ fn build_signed_extrinsic_starts_with_compact_length_prefix() {
     .unwrap();
 
     let (declared_len, prefix_len) =
-        samp::scale::decode_compact(&ext).expect("compact length prefix");
+        samp::scale::decode_compact(ext.as_bytes()).expect("compact length prefix");
     assert_eq!(
         usize::try_from(declared_len).unwrap() + prefix_len,
         ext.len()
@@ -141,8 +141,8 @@ fn build_signed_extrinsic_uses_immortal_era_byte() {
     )
     .unwrap();
 
-    let (_, prefix_len) = samp::scale::decode_compact(&ext).unwrap();
-    let payload = &ext[prefix_len..];
+    let (_, prefix_len) = samp::scale::decode_compact(ext.as_bytes()).unwrap();
+    let payload = &ext.as_bytes()[prefix_len..];
     let era_offset = 1 + 1 + 32 + 1 + 64;
     assert_eq!(payload[era_offset], 0x00);
 }
@@ -180,19 +180,19 @@ fn build_signed_extrinsic_different_nonces_produce_different_bytes() {
 
 #[test]
 fn extract_signer_returns_none_for_unsigned_extrinsic() {
-    let unsigned = vec![0x10, 0x04, 0x03, 0x00, 0x00];
+    let unsigned = ExtrinsicBytes::from_bytes(vec![0x10, 0x04, 0x03, 0x00, 0x00]);
     assert!(extract_signer(&unsigned).is_none());
 }
 
 #[test]
 fn extract_call_returns_none_for_unsigned_extrinsic() {
-    let unsigned = vec![0x10, 0x04, 0x03, 0x00, 0x00];
+    let unsigned = ExtrinsicBytes::from_bytes(vec![0x10, 0x04, 0x03, 0x00, 0x00]);
     assert!(extract_call(&unsigned).is_none());
 }
 
 #[test]
 fn extract_signer_returns_none_for_empty_input() {
-    assert!(extract_signer(&[]).is_none());
+    assert!(extract_signer(&ExtrinsicBytes::from_bytes(Vec::new())).is_none());
 }
 
 #[test]
@@ -221,8 +221,8 @@ fn matches_e2e_extrinsic_vectors_fixture() {
         .unwrap();
 
         assert_eq!(
-            built,
-            unhex(&case.expected_extrinsic),
+            built.as_bytes(),
+            unhex(&case.expected_extrinsic).as_slice(),
             "case {} did not match fixture",
             case.label
         );

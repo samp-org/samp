@@ -71,7 +71,7 @@ proptest! {
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
         let remark = encode_public(&recipient, &body);
-        prop_assert_eq!(remark[0] & 0xF0, 0x10);
+        prop_assert_eq!(remark.as_bytes()[0] & 0xF0, 0x10);
     }
 
     #[test]
@@ -83,8 +83,8 @@ proptest! {
     ) {
         let nonce = Nonce::from_bytes(nonce_bytes);
         let eph_pubkey = Pubkey::from_bytes(eph_pubkey_bytes);
-        let capsules = vec![0u8; n_capsules * 33];
-        let ciphertext = vec![0u8; ct_len];
+        let capsules = samp::Capsules::from_bytes(vec![0u8; n_capsules * 33]).unwrap();
+        let ciphertext = samp::Ciphertext::from_bytes(vec![0u8; ct_len]);
         let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
         let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
             panic!("expected Group");

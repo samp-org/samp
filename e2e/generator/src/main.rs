@@ -218,19 +218,27 @@ fn main() {
         )
         .unwrap();
 
-    let encrypted_content = encryption::encrypt(plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();
-    let ciphertext_with_tag = &encrypted_content[64..];
+    let plaintext_typed = samp::Plaintext::from_bytes(plaintext.to_vec());
+    let encrypted_content =
+        encryption::encrypt(&plaintext_typed, &bob_pubkey, &nonce, &alice_seed).unwrap();
+    let encrypted_content_bytes = encrypted_content.as_bytes();
+    let ciphertext_with_tag = &encrypted_content_bytes[64..];
     assert_eq!(ciphertext_with_tag, manual_ct.as_slice());
-    assert_eq!(&encrypted_content[..32], eph_pubkey.to_bytes());
-    assert_eq!(&encrypted_content[32..64], sealed_to);
+    assert_eq!(&encrypted_content_bytes[..32], eph_pubkey.to_bytes());
+    assert_eq!(&encrypted_content_bytes[32..64], sealed_to);
 
-    let enc_remark = encode_encrypted(ContentType::Encrypted, view_tag, &nonce, &encrypted_content);
+    let enc_remark = encode_encrypted(
+        ContentType::Encrypted,
+        samp::ViewTag::new(view_tag),
+        &nonce,
+        &encrypted_content,
+    );
 
     let samp::Remark::Encrypted(parsed) = decode_remark(&enc_remark).unwrap() else {
         panic!("expected Encrypted");
     };
     let decrypted = encryption::decrypt(&parsed, &bob_scalar).unwrap();
-    assert_eq!(&decrypted, plaintext);
+    assert_eq!(decrypted.as_bytes(), plaintext);
 
     // === Thread message ===
     let thread_ref = BlockRef { block: 100, index: 0 };
@@ -245,8 +253,10 @@ fn main() {
         .unwrap();
     let thread_nonce = Nonce::from_bytes(thread_nonce_bytes);
 
+    let thread_plaintext_typed = samp::Plaintext::from_bytes(thread_plaintext.clone());
     let thread_encrypted =
-        encryption::encrypt(&thread_plaintext, &bob_pubkey, &thread_nonce, &alice_seed).unwrap();
+        encryption::encrypt(&thread_plaintext_typed, &bob_pubkey, &thread_nonce, &alice_seed)
+            .unwrap();
     let thread_view_tag =
         encryption::compute_view_tag(&alice_seed, &bob_pubkey, &thread_nonce).unwrap();
     let thread_remark = encode_encrypted(
@@ -260,13 +270,13 @@ fn main() {
         panic!("expected Thread");
     };
     let thread_decrypted = encryption::decrypt(&thread_parsed, &bob_scalar).unwrap();
-    assert_eq!(thread_decrypted, thread_plaintext);
+    assert_eq!(thread_decrypted.as_bytes(), thread_plaintext.as_slice());
 
     // === Sender self-decryption intermediates ===
     let sd_seal_hk = Hkdf::<Sha256>::new(Some(&nonce_bytes), &alice_seed_bytes);
     let mut sd_seal_key = [0u8; 32];
     sd_seal_hk.expand(b"samp-seal", &mut sd_seal_key).unwrap();
-    let sd_sealed_to: [u8; 32] = encrypted_content[32..64].try_into().unwrap();
+    let sd_sealed_to: [u8; 32] = encrypted_content_bytes[32..64].try_into().unwrap();
     let mut sd_recipient = [0u8; 32];
     for i in 0..32 {
         sd_recipient[i] = sd_sealed_to[i] ^ sd_seal_key[i];
@@ -286,7 +296,7 @@ fn main() {
     let sd_shared = (sd_eph_scalar * sd_recip_point).compress().to_bytes();
 
     let sd_decrypted = encryption::decrypt_as_sender(&parsed, &alice_seed).unwrap();
-    assert_eq!(&sd_decrypted, plaintext);
+    assert_eq!(sd_decrypted.as_bytes(), plaintext);
 
     // === Channel message ===
     let ch_body = b"Did he use MEV shield?";
@@ -329,9 +339,10 @@ fn main() {
     );
 
     let group_cipher = ChaCha20Poly1305::new((&content_key).into());
-    let group_ciphertext = group_cipher
+    let group_ciphertext_raw = group_cipher
         .encrypt(ChaChaNonce::from_slice(&group_nonce_bytes), group_inner.as_slice())
         .expect("group encryption");
+    let group_ciphertext = samp::Ciphertext::from_bytes(group_ciphertext_raw);
 
     let group_eph_pubkey_pk = Pubkey::from_bytes(group_eph_pubkey.to_bytes());
     let group_remark = encode_group(
@@ -341,15 +352,15 @@ fn main() {
         &group_ciphertext,
     );
 
-    let group_content = &group_remark[13..];
+    let group_content = &group_remark.as_bytes()[13..];
     let bob_decrypted =
         encryption::decrypt_from_group(group_content, &bob_scalar, &group_nonce, Some(3)).unwrap();
-    assert_eq!(bob_decrypted, group_inner);
+    assert_eq!(bob_decrypted.as_bytes(), group_inner.as_slice());
 
     let charlie_decrypted =
         encryption::decrypt_from_group(group_content, &charlie_scalar, &group_nonce, Some(3))
             .unwrap();
-    assert_eq!(charlie_decrypted, group_inner);
+    assert_eq!(charlie_decrypted.as_bytes(), group_inner.as_slice());
 
     let random_seed = Seed::from_bytes([0xEE; 32]);
     let random_scalar = encryption::sr25519_signing_scalar(&random_seed);
@@ -360,8 +371,15 @@ fn main() {
 
     // === Edge cases ===
     let empty_body_public = encode_public(&bob_pubkey, b"");
-    let min_encrypted = encryption::encrypt(b"", &bob_pubkey, &nonce, &alice_seed).unwrap();
-    let min_enc_remark = encode_encrypted(ContentType::Encrypted, view_tag, &nonce, &min_encrypted);
+    let empty_plaintext = samp::Plaintext::from_bytes(Vec::new());
+    let min_encrypted =
+        encryption::encrypt(&empty_plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();
+    let min_enc_remark = encode_encrypted(
+        ContentType::Encrypted,
+        samp::ViewTag::new(view_tag),
+        &nonce,
+        &min_encrypted,
+    );
     let empty_desc_create = encode_channel_create("test", "").unwrap();
 
     // === Negative cases ===
@@ -394,7 +412,7 @@ fn main() {
         charlie: make_keypair_vec(&charlie_seed_bytes),
         public_message: PublicMsgVec {
             body: h(body),
-            remark: h(&public_remark),
+            remark: h(public_remark.as_bytes()),
         },
         encrypted_message: EncryptedMsgVec {
             nonce: h(&nonce_bytes),
@@ -407,8 +425,8 @@ fn main() {
             sealed_to: h(&sealed_to),
             symmetric_key: h(&symmetric_key),
             ciphertext_with_tag: h(ciphertext_with_tag),
-            encrypted_content: h(&encrypted_content),
-            remark: h(&enc_remark),
+            encrypted_content: h(encrypted_content.as_bytes()),
+            remark: h(enc_remark.as_bytes()),
         },
         thread_message: ThreadMsgVec {
             nonce: h(&thread_nonce_bytes),
@@ -417,8 +435,8 @@ fn main() {
             continues: [100, 0],
             body: h(thread_body),
             thread_plaintext: h(&thread_plaintext),
-            encrypted_content: h(&thread_encrypted),
-            remark: h(&thread_remark),
+            encrypted_content: h(thread_encrypted.as_bytes()),
+            remark: h(thread_remark.as_bytes()),
         },
         sender_self_decryption: SenderDecryptVec {
             seal_key: h(&sd_seal_key),
@@ -432,12 +450,12 @@ fn main() {
             channel_ref: [100, 2],
             reply_to: [99, 1],
             continues: [0, 0],
-            remark: h(&ch_remark),
+            remark: h(ch_remark.as_bytes()),
         },
         channel_create: ChannelCreateVec {
             name: "general".into(),
             description: "General discussion".into(),
-            remark: h(&create_remark),
+            remark: h(create_remark.as_bytes()),
         },
         group_message: GroupMsgVec {
             nonce: h(&group_nonce_bytes),
@@ -447,14 +465,14 @@ fn main() {
             root_plaintext: h(&group_inner),
             content_key: h(&content_key),
             eph_pubkey: h(&group_eph_pubkey.to_bytes()),
-            capsules: h(&group_capsules),
-            ciphertext: h(&group_ciphertext),
-            remark: h(&group_remark),
+            capsules: h(group_capsules.as_bytes()),
+            ciphertext: h(group_ciphertext.as_bytes()),
+            remark: h(group_remark.as_bytes()),
         },
         edge_cases: EdgeCases {
-            empty_body_public: h(&empty_body_public),
-            min_encrypted: h(&min_enc_remark),
-            empty_desc_channel_create: h(&empty_desc_create),
+            empty_body_public: h(empty_body_public.as_bytes()),
+            min_encrypted: h(min_enc_remark.as_bytes()),
+            empty_desc_channel_create: h(empty_desc_create.as_bytes()),
         },
         negative_cases: NegativeCases {
             non_samp_version,
@@ -621,6 +639,6 @@ fn build_case(c: CaseInputs<'_>) -> ExtrinsicCaseVec {
             spec_version: c.chain.spec_version,
             tx_version: c.chain.tx_version,
         },
-        expected_extrinsic: h(&extrinsic),
+        expected_extrinsic: h(extrinsic.as_bytes()),
     }
 }

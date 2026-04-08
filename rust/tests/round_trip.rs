@@ -6,10 +6,14 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
-    ContentType, Nonce, Pubkey, Remark, Seed,
+    ContentType, Nonce, Plaintext, Pubkey, Remark, Seed,
 };
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
+
+fn pt(b: &[u8]) -> Plaintext {
+    Plaintext::from_bytes(b.to_vec())
+}
 
 fn alice_seed() -> Seed {
     Seed::from_bytes([0xAA; 32])
@@ -54,7 +58,7 @@ fn public_message_roundtrip() {
     let body = b"Hello Bob!";
     let remark = encode_public(&recipient, body);
 
-    assert_eq!(remark[0], 0x10);
+    assert_eq!(remark.as_bytes()[0], 0x10);
     assert_eq!(remark.len(), 33 + body.len());
 
     let Remark::Public { recipient: r, body: b } = decode_remark(&remark).unwrap() else {
@@ -69,12 +73,12 @@ fn public_message_roundtrip() {
 #[test]
 fn encrypted_message_roundtrip() {
     let nonce = n(0xEE);
-    let plaintext = b"secret message";
-    let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let plaintext = pt(b"secret message");
+    let encrypted = encrypt(&plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
-    assert_eq!(remark[0], 0x11);
+    assert_eq!(remark.as_bytes()[0], 0x11);
 
     let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {
         panic!("expected Encrypted");
@@ -99,11 +103,11 @@ fn thread_message_roundtrip() {
         br(99, 0),
         b"thread message",
     );
-    let encrypted = encrypt(&thread_content, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let encrypted = encrypt(&pt(&thread_content), &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
 
     let remark = encode_encrypted(ContentType::Thread, vt, &nonce, &encrypted);
-    assert_eq!(remark[0], 0x12);
+    assert_eq!(remark.as_bytes()[0], 0x12);
 
     let Remark::Thread(payload) = decode_remark(&remark).unwrap() else {
         panic!("expected Thread");
@@ -111,7 +115,7 @@ fn thread_message_roundtrip() {
 
     let scalar = sr25519_signing_scalar(&bob_seed());
     let plaintext = decrypt(&payload, &scalar).unwrap();
-    let (thread, reply_to, continues, body) = decode_thread_content(&plaintext).unwrap();
+    let (thread, reply_to, continues, body) = decode_thread_content(plaintext.as_bytes()).unwrap();
     assert_eq!(
         thread,
         br(50, 0)
@@ -132,7 +136,7 @@ fn thread_message_roundtrip() {
 #[test]
 fn channel_creation_roundtrip() {
     let remark = samp::encode_channel_create("general", "The main channel").unwrap();
-    assert_eq!(remark[0], 0x13);
+    assert_eq!(remark.as_bytes()[0], 0x13);
 
     let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
         panic!("expected ChannelCreate");
@@ -151,7 +155,7 @@ fn channel_message_roundtrip() {
         br(198, 0),
         b"channel message",
     );
-    assert_eq!(remark[0], 0x14);
+    assert_eq!(remark.as_bytes()[0], 0x14);
     assert_eq!(remark.len(), 19 + 15);
 
     let Remark::Channel { channel_ref, content } = decode_remark(&remark).unwrap() else {
@@ -185,13 +189,17 @@ fn group_root_message_roundtrip() {
     let mut root_body = encode_group_members(&members);
     root_body.extend_from_slice(b"Welcome to the group!");
 
-    let plaintext =
-        encode_thread_content(BlockRef::ZERO, BlockRef::ZERO, BlockRef::ZERO, &root_body);
+    let plaintext = pt(&encode_thread_content(
+        BlockRef::ZERO,
+        BlockRef::ZERO,
+        BlockRef::ZERO,
+        &root_body,
+    ));
 
     let (eph_pubkey, capsules, ciphertext) =
         encrypt_for_group(&plaintext, &members, &nonce, &alice_seed()).unwrap();
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
-    assert_eq!(remark[0], 0x15);
+    assert_eq!(remark.as_bytes()[0], 0x15);
 
     let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
         panic!("expected Group");
@@ -200,7 +208,8 @@ fn group_root_message_roundtrip() {
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(3)).unwrap();
-    let (group_ref, _reply_to, _continues, body) = decode_group_content(&decrypted).unwrap();
+    let (group_ref, _reply_to, _continues, body) =
+        decode_group_content(decrypted.as_bytes()).unwrap();
     assert!(group_ref.is_zero());
     let (member_list, first_msg) = decode_group_members(body).unwrap();
     assert_eq!(member_list.len(), 3);
@@ -223,17 +232,17 @@ fn group_message_roundtrip() {
     let members = vec![alice_pk, bob_pk];
 
     let nonce = n(0xCD);
-    let plaintext = encode_thread_content(
+    let plaintext = pt(&encode_thread_content(
         br(100, 1),
         br(99, 0),
         BlockRef::ZERO,
         b"hello group",
-    );
+    ));
 
     let (eph_pubkey, capsules, ciphertext) =
         encrypt_for_group(&plaintext, &members, &nonce, &alice_seed()).unwrap();
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
-    assert_eq!(remark[0], 0x15);
+    assert_eq!(remark.as_bytes()[0], 0x15);
 
     let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
         panic!("expected Group");
@@ -241,7 +250,8 @@ fn group_message_roundtrip() {
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(2)).unwrap();
-    let (group_ref, reply_to, continues, body) = decode_group_content(&decrypted).unwrap();
+    let (group_ref, reply_to, continues, body) =
+        decode_group_content(decrypted.as_bytes()).unwrap();
     assert_eq!(
         group_ref,
         br(100, 1)
@@ -265,12 +275,12 @@ fn group_trial_aead_without_known_n() {
     let members = vec![alice_pk, bob_pk, eve_pk];
 
     let nonce = n(0xEF);
-    let plaintext = encode_thread_content(
+    let plaintext = pt(&encode_thread_content(
         br(500, 2),
         BlockRef::ZERO,
         BlockRef::ZERO,
         b"trial aead test",
-    );
+    ));
 
     let (eph_pubkey, capsules, ciphertext) =
         encrypt_for_group(&plaintext, &members, &nonce, &alice_seed()).unwrap();
@@ -281,7 +291,7 @@ fn group_trial_aead_without_known_n() {
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
     let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, None).unwrap();
-    let (group_ref, _, _, body) = decode_group_content(&decrypted).unwrap();
+    let (group_ref, _, _, body) = decode_group_content(decrypted.as_bytes()).unwrap();
     assert_eq!(
         group_ref,
         br(500, 2)
@@ -294,8 +304,8 @@ fn group_trial_aead_without_known_n() {
 #[test]
 fn encrypted_message_unreadable_by_third_party() {
     let nonce = n(0xDD);
-    let plaintext = b"secret between Alice and Bob";
-    let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let plaintext = pt(b"secret between Alice and Bob");
+    let encrypted = encrypt(&plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {
@@ -313,8 +323,8 @@ fn encrypted_message_unreadable_by_third_party() {
 #[test]
 fn sender_can_decrypt_own_message() {
     let nonce = n(0xFF);
-    let plaintext = b"my own message";
-    let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
+    let plaintext = pt(b"my own message");
+    let encrypted = encrypt(&plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {

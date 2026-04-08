@@ -219,3 +219,170 @@ impl fmt::Debug for Nonce {
         f.write_str(")")
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ViewTag(u8);
+
+impl ViewTag {
+    pub const fn new(b: u8) -> Self {
+        Self(b)
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Debug for ViewTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ViewTag(0x{:02x})", self.0)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct Plaintext(Vec<u8>);
+
+impl Plaintext {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl fmt::Debug for Plaintext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Plaintext({} bytes)", self.0.len())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct Ciphertext(Vec<u8>);
+
+impl Ciphertext {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for Ciphertext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ciphertext({} bytes)", self.0.len())
+    }
+}
+
+const CAPSULE_SIZE: usize = 33;
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct Capsules(Vec<u8>);
+
+impl Capsules {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, SampError> {
+        if !bytes.len().is_multiple_of(CAPSULE_SIZE) {
+            return Err(SampError::InvalidCapsules(bytes.len()));
+        }
+        Ok(Self(bytes))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn count(&self) -> usize {
+        self.0.len() / CAPSULE_SIZE
+    }
+}
+
+impl fmt::Debug for Capsules {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Capsules({} entries)", self.count())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct RemarkBytes(Vec<u8>);
+
+impl RemarkBytes {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for RemarkBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RemarkBytes({} bytes)", self.0.len())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct ExtrinsicBytes(Vec<u8>);
+
+impl ExtrinsicBytes {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for ExtrinsicBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ExtrinsicBytes({} bytes)", self.0.len())
+    }
+}

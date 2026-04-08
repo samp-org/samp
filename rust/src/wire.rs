@@ -1,5 +1,5 @@
 use crate::error::SampError;
-use crate::types::{BlockRef, Nonce, Pubkey};
+use crate::types::{BlockRef, Capsules, Ciphertext, Nonce, Pubkey, RemarkBytes, ViewTag};
 
 pub const SAMP_VERSION: u8 = 0x10;
 
@@ -67,9 +67,9 @@ fn decode_block_ref(data: &[u8], offset: usize) -> BlockRef {
 
 #[derive(Debug, Clone)]
 pub struct EncryptedPayload {
-    pub view_tag: u8,
+    pub view_tag: ViewTag,
     pub nonce: Nonce,
-    pub encrypted_content: Vec<u8>,
+    pub encrypted_content: Ciphertext,
 }
 
 #[derive(Debug, Clone)]
@@ -115,29 +115,29 @@ impl Remark {
     }
 }
 
-pub fn encode_public(recipient: &Pubkey, body: &[u8]) -> Vec<u8> {
+pub fn encode_public(recipient: &Pubkey, body: &[u8]) -> RemarkBytes {
     let mut out = Vec::with_capacity(33 + body.len());
     out.push(ContentType::Public.to_byte());
     out.extend_from_slice(recipient.as_bytes());
     out.extend_from_slice(body);
-    out
+    RemarkBytes::from_bytes(out)
 }
 
 pub fn encode_encrypted(
     content_type: ContentType,
-    view_tag: u8,
+    view_tag: ViewTag,
     nonce: &Nonce,
-    encrypted_content: &[u8],
-) -> Vec<u8> {
+    encrypted_content: &Ciphertext,
+) -> RemarkBytes {
     let mut out = Vec::with_capacity(14 + encrypted_content.len());
     out.push(content_type.to_byte());
-    out.push(view_tag);
+    out.push(view_tag.get());
     out.extend_from_slice(nonce.as_bytes());
-    out.extend_from_slice(encrypted_content);
-    out
+    out.extend_from_slice(encrypted_content.as_bytes());
+    RemarkBytes::from_bytes(out)
 }
 
-pub fn encode_channel_create(name: &str, description: &str) -> Result<Vec<u8>, SampError> {
+pub fn encode_channel_create(name: &str, description: &str) -> Result<RemarkBytes, SampError> {
     if name.is_empty() || name.len() > CHANNEL_NAME_MAX {
         return Err(SampError::InvalidChannelName);
     }
@@ -150,7 +150,7 @@ pub fn encode_channel_create(name: &str, description: &str) -> Result<Vec<u8>, S
     out.extend_from_slice(name.as_bytes());
     out.push(description.len() as u8);
     out.extend_from_slice(description.as_bytes());
-    Ok(out)
+    Ok(RemarkBytes::from_bytes(out))
 }
 
 pub fn encode_channel_msg(
@@ -158,32 +158,33 @@ pub fn encode_channel_msg(
     reply_to: BlockRef,
     continues: BlockRef,
     body: &[u8],
-) -> Vec<u8> {
+) -> RemarkBytes {
     let mut out = Vec::with_capacity(19 + body.len());
     out.push(ContentType::Channel.to_byte());
     encode_block_ref(&mut out, &channel_ref);
     encode_block_ref(&mut out, &reply_to);
     encode_block_ref(&mut out, &continues);
     out.extend_from_slice(body);
-    out
+    RemarkBytes::from_bytes(out)
 }
 
 pub fn encode_group(
     nonce: &Nonce,
     eph_pubkey: &Pubkey,
-    capsules: &[u8],
-    ciphertext: &[u8],
-) -> Vec<u8> {
-    let mut out = Vec::with_capacity(45 + capsules.len() + ciphertext.len());
+    capsules: &Capsules,
+    ciphertext: &Ciphertext,
+) -> RemarkBytes {
+    let mut out = Vec::with_capacity(45 + capsules.as_bytes().len() + ciphertext.len());
     out.push(ContentType::Group.to_byte());
     out.extend_from_slice(nonce.as_bytes());
     out.extend_from_slice(eph_pubkey.as_bytes());
-    out.extend_from_slice(capsules);
-    out.extend_from_slice(ciphertext);
-    out
+    out.extend_from_slice(capsules.as_bytes());
+    out.extend_from_slice(ciphertext.as_bytes());
+    RemarkBytes::from_bytes(out)
 }
 
-pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
+pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
+    let data = remark.as_bytes();
     if data.is_empty() {
         return Err(SampError::InsufficientData);
     }
@@ -212,13 +213,13 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
             if data.len() < 14 {
                 return Err(SampError::InsufficientData);
             }
-            let view_tag = data[1];
+            let view_tag = ViewTag::new(data[1]);
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes.copy_from_slice(&data[2..14]);
             let payload = EncryptedPayload {
                 view_tag,
                 nonce: Nonce::from_bytes(nonce_bytes),
-                encrypted_content: data[14..].to_vec(),
+                encrypted_content: Ciphertext::from_bytes(data[14..].to_vec()),
             };
             if ct_byte & 0x0F == 0x01 {
                 Ok(Remark::Encrypted(payload))

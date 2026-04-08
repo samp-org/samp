@@ -2,7 +2,7 @@ use blake2::Digest;
 use parity_scale_codec::{Compact, Encode};
 
 use crate::scale;
-use crate::types::{GenesisHash, Pubkey, Signature};
+use crate::types::{ExtrinsicBytes, GenesisHash, Pubkey, Signature};
 
 const EXT_VERSION_SIGNED: u8 = 0x84;
 const ADDR_TYPE_ID: u8 = 0x00;
@@ -47,7 +47,7 @@ pub fn build_signed_extrinsic(
     sign: impl Fn(&[u8]) -> Signature,
     nonce: u32,
     chain_params: &ChainParams,
-) -> Result<Vec<u8>, Error> {
+) -> Result<ExtrinsicBytes, Error> {
     let _ = u32::try_from(call_args.len()).map_err(|_| Error::CallTooLarge {
         len: call_args.len(),
     })?;
@@ -102,12 +102,13 @@ pub fn build_signed_extrinsic(
     Compact(payload_len).encode_to(&mut full);
     full.extend_from_slice(&extrinsic_payload);
 
-    Ok(full)
+    Ok(ExtrinsicBytes::from_bytes(full))
 }
 
-pub fn extract_signer(extrinsic_bytes: &[u8]) -> Option<Pubkey> {
-    let (_, prefix_len) = scale::decode_compact(extrinsic_bytes)?;
-    let payload = &extrinsic_bytes[prefix_len..];
+pub fn extract_signer(extrinsic_bytes: &ExtrinsicBytes) -> Option<Pubkey> {
+    let bytes = extrinsic_bytes.as_bytes();
+    let (_, prefix_len) = scale::decode_compact(bytes)?;
+    let payload = &bytes[prefix_len..];
     if payload.len() < MIN_SIGNER_PAYLOAD || payload[0] & 0x80 == 0 || payload[1] != ADDR_TYPE_ID {
         return None;
     }
@@ -122,9 +123,10 @@ pub struct ExtractedCall<'a> {
     pub args: &'a [u8],
 }
 
-pub fn extract_call(extrinsic_bytes: &[u8]) -> Option<ExtractedCall<'_>> {
-    let (_, prefix_len) = scale::decode_compact(extrinsic_bytes)?;
-    let payload = &extrinsic_bytes[prefix_len..];
+pub fn extract_call<'a>(extrinsic_bytes: &'a ExtrinsicBytes) -> Option<ExtractedCall<'a>> {
+    let bytes = extrinsic_bytes.as_bytes();
+    let (_, prefix_len) = scale::decode_compact(bytes)?;
+    let payload = &bytes[prefix_len..];
 
     if payload.len() < MIN_SIGNED_EXTRINSIC || payload[0] & 0x80 == 0 {
         return None;

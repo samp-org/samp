@@ -20,7 +20,8 @@ pub use metadata::{ErrorEntry, ErrorTable, Metadata, StorageLayout};
 pub use scale::{decode_bytes, decode_compact, encode_compact};
 pub use secret::Seed;
 pub use types::{
-    BlockHash, BlockNumber, BlockRef, ExtIndex, GenesisHash, Nonce, Pubkey, Signature,
+    BlockHash, BlockNumber, BlockRef, Capsules, Ciphertext, ExtIndex, ExtrinsicBytes, GenesisHash,
+    Nonce, Plaintext, Pubkey, RemarkBytes, Signature, ViewTag,
 };
 pub use wire::{
     decode_channel_content, decode_channel_create, decode_group_content, decode_group_members,

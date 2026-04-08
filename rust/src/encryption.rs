@@ -1,6 +1,6 @@
 use crate::error::SampError;
 use crate::secret::Seed;
-use crate::types::{Nonce, Pubkey};
+use crate::types::{Capsules, Ciphertext, Nonce, Plaintext, Pubkey, ViewTag};
 use crate::wire::{EncryptedPayload, CAPSULE_SIZE};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
@@ -12,7 +12,7 @@ use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
-pub type GroupEncrypted = (Pubkey, Vec<u8>, Vec<u8>);
+pub type GroupEncrypted = (Pubkey, Capsules, Ciphertext);
 
 const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
 const VIEW_TAG_INFO: &[u8] = b"samp-view-tag";
@@ -93,12 +93,12 @@ pub fn compute_view_tag(
     sender_seed: &Seed,
     recipient_pubkey: &Pubkey,
     nonce: &Nonce,
-) -> Result<u8, SampError> {
+) -> Result<ViewTag, SampError> {
     let recipient_point = recipient_pubkey.to_compressed_ristretto();
     let eph_bytes = derive_ephemeral(sender_seed, recipient_pubkey.as_bytes(), nonce);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let shared = ecdh_shared_secret(&eph_scalar, &recipient_point)?;
-    Ok(derive_view_tag(&shared))
+    Ok(ViewTag::new(derive_view_tag(&shared)))
 }
 
 fn ensure_payload_size(payload: &EncryptedPayload) -> Result<(), SampError> {
@@ -108,16 +108,22 @@ fn ensure_payload_size(payload: &EncryptedPayload) -> Result<(), SampError> {
     Ok(())
 }
 
-pub fn check_view_tag(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<u8, SampError> {
+pub fn check_view_tag(
+    payload: &EncryptedPayload,
+    signing_scalar: &Scalar,
+) -> Result<ViewTag, SampError> {
     ensure_payload_size(payload)?;
-    let eph_pubkey = CompressedRistretto(payload.encrypted_content[..32].try_into().unwrap());
+    let eph_pubkey = CompressedRistretto(payload.encrypted_content.as_bytes()[..32].try_into().unwrap());
     let shared = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
-    Ok(derive_view_tag(&shared))
+    Ok(ViewTag::new(derive_view_tag(&shared)))
 }
 
-pub fn unseal_recipient(payload: &EncryptedPayload, sender_seed: &Seed) -> Result<Pubkey, SampError> {
+pub fn unseal_recipient(
+    payload: &EncryptedPayload,
+    sender_seed: &Seed,
+) -> Result<Pubkey, SampError> {
     ensure_payload_size(payload)?;
-    let sealed_to: [u8; 32] = payload.encrypted_content[32..64].try_into().unwrap();
+    let sealed_to: [u8; 32] = payload.encrypted_content.as_bytes()[32..64].try_into().unwrap();
     let key = derive_seal_key(sender_seed, &payload.nonce);
     let mut recipient = [0u8; 32];
     for i in 0..32 {
@@ -127,11 +133,11 @@ pub fn unseal_recipient(payload: &EncryptedPayload, sender_seed: &Seed) -> Resul
 }
 
 pub fn encrypt(
-    plaintext: &[u8],
+    plaintext: &Plaintext,
     recipient_pubkey: &Pubkey,
     nonce: &Nonce,
     sender_seed: &Seed,
-) -> Result<Vec<u8>, SampError> {
+) -> Result<Ciphertext, SampError> {
     let recipient_point = recipient_pubkey.to_compressed_ristretto();
     let recipient_bytes = *recipient_pubkey.as_bytes();
     let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, nonce);
@@ -147,13 +153,13 @@ pub fn encrypt(
         .encrypt(
             ChaChaNonce::from_slice(nonce.as_bytes()),
             Payload {
-                msg: plaintext,
+                msg: plaintext.as_bytes(),
                 aad: &sealed_to,
             },
         )
         .map_err(|_| SampError::DecryptionFailed)?;
 
-    let mut content = Vec::with_capacity(ENCRYPTED_OVERHEAD + plaintext.len());
+    let mut content = Vec::with_capacity(ENCRYPTED_OVERHEAD + plaintext.as_bytes().len());
     content.extend_from_slice(&eph_pubkey.to_bytes());
     content.extend_from_slice(&sealed_to);
     content.extend_from_slice(&ciphertext_with_tag);
@@ -162,12 +168,15 @@ pub fn encrypt(
     shared_secret.zeroize();
     sealed_to.zeroize();
     sym_key.zeroize();
-    Ok(content)
+    Ok(Ciphertext::from_bytes(content))
 }
 
-pub fn decrypt(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<Vec<u8>, SampError> {
+pub fn decrypt(
+    payload: &EncryptedPayload,
+    signing_scalar: &Scalar,
+) -> Result<Plaintext, SampError> {
     ensure_payload_size(payload)?;
-    let content = payload.encrypted_content.as_slice();
+    let content = payload.encrypted_content.as_bytes();
     let eph_pubkey = CompressedRistretto(content[..32].try_into().unwrap());
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
     let mut shared_secret = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
@@ -181,6 +190,7 @@ pub fn decrypt(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<Ve
                 aad: &sealed_to,
             },
         )
+        .map(Plaintext::from_bytes)
         .map_err(|_| SampError::DecryptionFailed);
     shared_secret.zeroize();
     sym_key.zeroize();
@@ -190,9 +200,9 @@ pub fn decrypt(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<Ve
 pub fn decrypt_as_sender(
     payload: &EncryptedPayload,
     sender_seed: &Seed,
-) -> Result<Vec<u8>, SampError> {
+) -> Result<Plaintext, SampError> {
     ensure_payload_size(payload)?;
-    let content = payload.encrypted_content.as_slice();
+    let content = payload.encrypted_content.as_bytes();
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
     let mut recipient_bytes = seal_recipient(&sealed_to, sender_seed, &payload.nonce);
     let recipient_pubkey = CompressedRistretto(recipient_bytes);
@@ -209,6 +219,7 @@ pub fn decrypt_as_sender(
                 aad: &sealed_to,
             },
         )
+        .map(Plaintext::from_bytes)
         .map_err(|_| SampError::DecryptionFailed);
     recipient_bytes.zeroize();
     eph_bytes.zeroize();
@@ -251,7 +262,7 @@ pub fn build_capsules(
     member_pubkeys: &[Pubkey],
     eph_scalar: &Scalar,
     nonce: &Nonce,
-) -> Vec<u8> {
+) -> Capsules {
     let mut out = Vec::with_capacity(member_pubkeys.len() * CAPSULE_SIZE);
     for pubkey in member_pubkeys {
         let point = pubkey.to_compressed_ristretto();
@@ -270,7 +281,7 @@ pub fn build_capsules(
         shared.zeroize();
         kek.zeroize();
     }
-    out
+    Capsules::from_bytes(out).expect("len is multiple of CAPSULE_SIZE by construction")
 }
 
 pub fn scan_capsules(
@@ -305,7 +316,7 @@ pub fn scan_capsules(
 }
 
 pub fn encrypt_for_group(
-    plaintext: &[u8],
+    plaintext: &Plaintext,
     member_pubkeys: &[Pubkey],
     nonce: &Nonce,
     sender_seed: &Seed,
@@ -320,11 +331,15 @@ pub fn encrypt_for_group(
 
     let cipher = ChaCha20Poly1305::new((&content_key).into());
     let ciphertext = cipher
-        .encrypt(ChaChaNonce::from_slice(nonce.as_bytes()), plaintext)
+        .encrypt(ChaChaNonce::from_slice(nonce.as_bytes()), plaintext.as_bytes())
         .map_err(|_| SampError::DecryptionFailed)?;
 
     content_key.zeroize();
-    Ok((Pubkey::from_bytes(eph_pubkey.to_bytes()), capsules, ciphertext))
+    Ok((
+        Pubkey::from_bytes(eph_pubkey.to_bytes()),
+        capsules,
+        Ciphertext::from_bytes(ciphertext),
+    ))
 }
 
 pub fn decrypt_from_group(
@@ -332,7 +347,7 @@ pub fn decrypt_from_group(
     my_scalar: &Scalar,
     nonce: &Nonce,
     known_member_count: Option<usize>,
-) -> Result<Vec<u8>, SampError> {
+) -> Result<Plaintext, SampError> {
     if content.len() < 32 {
         return Err(SampError::InsufficientData);
     }
@@ -352,6 +367,7 @@ pub fn decrypt_from_group(
         }
         let result = cipher
             .decrypt(ChaChaNonce::from_slice(nonce.as_bytes()), &after_eph[ct_start..])
+            .map(Plaintext::from_bytes)
             .map_err(|_| SampError::DecryptionFailed);
         content_key.zeroize();
         return result;
@@ -368,7 +384,7 @@ pub fn decrypt_from_group(
             cipher.decrypt(ChaChaNonce::from_slice(nonce.as_bytes()), &after_eph[ct_start..])
         {
             content_key.zeroize();
-            return Ok(plaintext);
+            return Ok(Plaintext::from_bytes(plaintext));
         }
     }
     content_key.zeroize();

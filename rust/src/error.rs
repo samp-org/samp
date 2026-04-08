@@ -11,6 +11,7 @@ pub enum SampError {
     InvalidChannelDesc,
     BlockNumberOverflow(u64),
     ExtIndexOverflow(usize),
+    InvalidCapsules(usize),
 }
 
 impl fmt::Display for SampError {
@@ -25,6 +26,7 @@ impl fmt::Display for SampError {
             Self::InvalidChannelDesc => write!(f, "channel description must be 0-128 bytes"),
             Self::BlockNumberOverflow(n) => write!(f, "block number {n} exceeds u32::MAX"),
             Self::ExtIndexOverflow(n) => write!(f, "ext index {n} exceeds u16::MAX"),
+            Self::InvalidCapsules(n) => write!(f, "capsules length {n} not a multiple of 33"),
         }
     }
 }
