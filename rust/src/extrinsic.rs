@@ -2,6 +2,7 @@ use blake2::Digest;
 use parity_scale_codec::{Compact, Encode};
 
 use crate::scale;
+use crate::types::{GenesisHash, Pubkey, Signature};
 
 const EXT_VERSION_SIGNED: u8 = 0x84;
 const ADDR_TYPE_ID: u8 = 0x00;
@@ -14,7 +15,7 @@ const MIN_SIGNER_PAYLOAD: usize = 34;
 
 #[derive(Clone, Debug)]
 pub struct ChainParams {
-    pub genesis_hash: [u8; 32],
+    pub genesis_hash: GenesisHash,
     pub spec_version: u32,
     pub tx_version: u32,
 }
@@ -42,8 +43,8 @@ pub fn build_signed_extrinsic(
     pallet_idx: u8,
     call_idx: u8,
     call_args: &[u8],
-    public_key: &[u8; 32],
-    sign: impl Fn(&[u8]) -> [u8; 64],
+    public_key: &Pubkey,
+    sign: impl Fn(&[u8]) -> Signature,
     nonce: u32,
     chain_params: &ChainParams,
 ) -> Result<Vec<u8>, Error> {
@@ -66,8 +67,8 @@ pub fn build_signed_extrinsic(
     signing_payload.push(METADATA_HASH_DISABLED);
     signing_payload.extend_from_slice(&chain_params.spec_version.to_le_bytes());
     signing_payload.extend_from_slice(&chain_params.tx_version.to_le_bytes());
-    signing_payload.extend_from_slice(&chain_params.genesis_hash);
-    signing_payload.extend_from_slice(&chain_params.genesis_hash);
+    signing_payload.extend_from_slice(chain_params.genesis_hash.as_bytes());
+    signing_payload.extend_from_slice(chain_params.genesis_hash.as_bytes());
     signing_payload.push(0x00);
 
     let to_sign = if signing_payload.len() > 256 {
@@ -83,9 +84,9 @@ pub fn build_signed_extrinsic(
     let mut extrinsic_payload = Vec::with_capacity(SIGNED_HEADER_LEN + 4 + call_data.len());
     extrinsic_payload.push(EXT_VERSION_SIGNED);
     extrinsic_payload.push(ADDR_TYPE_ID);
-    extrinsic_payload.extend_from_slice(public_key);
+    extrinsic_payload.extend_from_slice(public_key.as_bytes());
     extrinsic_payload.push(SIG_TYPE_SR25519);
-    extrinsic_payload.extend_from_slice(&signature);
+    extrinsic_payload.extend_from_slice(signature.as_bytes());
     extrinsic_payload.push(ERA_IMMORTAL);
     Compact(nonce).encode_to(&mut extrinsic_payload);
     extrinsic_payload.push(tip);
@@ -104,7 +105,7 @@ pub fn build_signed_extrinsic(
     Ok(full)
 }
 
-pub fn extract_signer(extrinsic_bytes: &[u8]) -> Option<[u8; 32]> {
+pub fn extract_signer(extrinsic_bytes: &[u8]) -> Option<Pubkey> {
     let (_, prefix_len) = scale::decode_compact(extrinsic_bytes)?;
     let payload = &extrinsic_bytes[prefix_len..];
     if payload.len() < MIN_SIGNER_PAYLOAD || payload[0] & 0x80 == 0 || payload[1] != ADDR_TYPE_ID {
@@ -112,7 +113,7 @@ pub fn extract_signer(extrinsic_bytes: &[u8]) -> Option<[u8; 32]> {
     }
     let mut account = [0u8; 32];
     account.copy_from_slice(&payload[2..34]);
-    Some(account)
+    Some(Pubkey::from_bytes(account))
 }
 
 pub struct ExtractedCall<'a> {

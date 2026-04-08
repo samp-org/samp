@@ -1,5 +1,6 @@
 use samp::extrinsic::{build_signed_extrinsic, extract_call, extract_signer, ChainParams};
 use samp::scale::encode_compact;
+use samp::{GenesisHash, Pubkey, Signature};
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use serde::Deserialize;
@@ -47,17 +48,21 @@ fn alice_keypair() -> schnorrkel::Keypair {
         .expand_to_keypair(ExpansionMode::Ed25519)
 }
 
-fn substrate_sign(kp: &schnorrkel::Keypair, msg: &[u8]) -> [u8; 64] {
+fn substrate_sign(kp: &schnorrkel::Keypair, msg: &[u8]) -> Signature {
     let context = schnorrkel::signing_context(b"substrate");
-    kp.sign(context.bytes(msg)).to_bytes()
+    Signature::from_bytes(kp.sign(context.bytes(msg)).to_bytes())
 }
 
 fn test_chain_params() -> ChainParams {
     ChainParams {
-        genesis_hash: [0x11; 32],
+        genesis_hash: GenesisHash::from_bytes([0x11; 32]),
         spec_version: 100,
         tx_version: 1,
     }
+}
+
+fn alice_pubkey(kp: &schnorrkel::Keypair) -> Pubkey {
+    Pubkey::from_bytes(kp.public.to_bytes())
 }
 
 fn build_remark_args(remark: &[u8]) -> Vec<u8> {
@@ -70,7 +75,7 @@ fn build_remark_args(remark: &[u8]) -> Vec<u8> {
 #[test]
 fn build_signed_extrinsic_round_trips_through_extract() {
     let kp = alice_keypair();
-    let public_key = kp.public.to_bytes();
+    let public_key = alice_pubkey(&kp);
     let remark = b"hello bob";
     let args = build_remark_args(remark);
 
@@ -86,7 +91,7 @@ fn build_signed_extrinsic_round_trips_through_extract() {
     .unwrap();
 
     let signer = extract_signer(&ext).expect("signer should extract");
-    assert_eq!(signer, public_key);
+    assert_eq!(signer.as_bytes(), public_key.as_bytes());
 
     let extracted = extract_call(&ext).expect("call should extract");
     assert_eq!(extracted.pallet, 0);
@@ -97,7 +102,7 @@ fn build_signed_extrinsic_round_trips_through_extract() {
 #[test]
 fn build_signed_extrinsic_starts_with_compact_length_prefix() {
     let kp = alice_keypair();
-    let public_key = kp.public.to_bytes();
+    let public_key = alice_pubkey(&kp);
     let args = build_remark_args(b"x");
 
     let ext = build_signed_extrinsic(
@@ -122,7 +127,7 @@ fn build_signed_extrinsic_starts_with_compact_length_prefix() {
 #[test]
 fn build_signed_extrinsic_uses_immortal_era_byte() {
     let kp = alice_keypair();
-    let public_key = kp.public.to_bytes();
+    let public_key = alice_pubkey(&kp);
     let args = build_remark_args(b"x");
 
     let ext = build_signed_extrinsic(
@@ -145,7 +150,7 @@ fn build_signed_extrinsic_uses_immortal_era_byte() {
 #[test]
 fn build_signed_extrinsic_different_nonces_produce_different_bytes() {
     let kp = alice_keypair();
-    let public_key = kp.public.to_bytes();
+    let public_key = alice_pubkey(&kp);
     let args = build_remark_args(b"x");
     let cp = test_chain_params();
 
@@ -195,11 +200,11 @@ fn matches_e2e_extrinsic_vectors_fixture() {
     let vectors: ExtrinsicVectors =
         serde_json::from_str(EXTRINSIC_VECTORS_JSON).expect("parse fixture");
     for case in vectors.cases {
-        let public_key: [u8; 32] = unhex_array(&case.public_key);
-        let signature: [u8; 64] = unhex_array(&case.fixed_signature);
+        let public_key = Pubkey::from_bytes(unhex_array(&case.public_key));
+        let signature = Signature::from_bytes(unhex_array(&case.fixed_signature));
         let call_args = unhex(&case.call_args);
         let chain = ChainParams {
-            genesis_hash: unhex_array(&case.chain_params.genesis_hash),
+            genesis_hash: GenesisHash::from_bytes(unhex_array(&case.chain_params.genesis_hash)),
             spec_version: case.chain_params.spec_version,
             tx_version: case.chain_params.tx_version,
         };
@@ -227,7 +232,7 @@ fn matches_e2e_extrinsic_vectors_fixture() {
 #[test]
 fn build_signed_extrinsic_payload_above_256_bytes_uses_blake2_hash() {
     let kp = alice_keypair();
-    let public_key = kp.public.to_bytes();
+    let public_key = alice_pubkey(&kp);
     let big_remark = vec![0xAB; 1024];
     let args = build_remark_args(&big_remark);
 

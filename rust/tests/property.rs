@@ -1,15 +1,20 @@
 use proptest::prelude::*;
 use samp::*;
 
+fn br(b: u32, i: u16) -> BlockRef {
+    BlockRef { block: b, index: i }
+}
+
 proptest! {
     #[test]
     fn encode_public_any_input_decode_roundtrips(
-        recipient in prop::array::uniform32(any::<u8>()),
+        recipient_bytes in prop::array::uniform32(any::<u8>()),
         body in "[\\x20-\\x7e]{0,256}",
     ) {
+        let recipient = Pubkey::from_bytes(recipient_bytes);
         let remark = encode_public(&recipient, body.as_bytes());
         let parsed = decode_remark(&remark).unwrap();
-        prop_assert_eq!(parsed.recipient, recipient);
+        prop_assert_eq!(parsed.recipient, recipient_bytes);
         prop_assert_eq!(parsed.content, body.as_bytes());
     }
 
@@ -21,9 +26,9 @@ proptest! {
         body in prop::collection::vec(any::<u8>(), 0..256),
     ) {
         let remark = encode_channel_msg(
-            BlockRef { block: ch_block, index: ch_idx },
-            BlockRef { block: rt_block, index: rt_idx },
-            BlockRef { block: ct_block, index: ct_idx },
+            br(ch_block, ch_idx),
+            br(rt_block, rt_idx),
+            br(ct_block, ct_idx),
             &body,
         );
         let parsed = decode_remark(&remark).unwrap();
@@ -58,26 +63,29 @@ proptest! {
 
     #[test]
     fn any_encode_output_has_samp_version_nibble(
-        recipient in prop::array::uniform32(any::<u8>()),
+        recipient_bytes in prop::array::uniform32(any::<u8>()),
         body in prop::collection::vec(any::<u8>(), 0..64),
     ) {
+        let recipient = Pubkey::from_bytes(recipient_bytes);
         let remark = encode_public(&recipient, &body);
         prop_assert_eq!(remark[0] & 0xF0, 0x10);
     }
 
     #[test]
     fn encode_group_any_capsules_decode_roundtrips(
-        nonce in prop::array::uniform::<_, 12>(any::<u8>()),
-        eph_pubkey in prop::array::uniform32(any::<u8>()),
+        nonce_bytes in prop::array::uniform::<_, 12>(any::<u8>()),
+        eph_pubkey_bytes in prop::array::uniform32(any::<u8>()),
         n_capsules in 1..10usize,
         ct_len in 16..128usize,
     ) {
+        let nonce = Nonce::from_bytes(nonce_bytes);
+        let eph_pubkey = Pubkey::from_bytes(eph_pubkey_bytes);
         let capsules = vec![0u8; n_capsules * 33];
         let ciphertext = vec![0u8; ct_len];
         let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
         let parsed = decode_remark(&remark).unwrap();
         assert!(matches!(parsed.content_type, ContentType::Group));
-        prop_assert_eq!(&parsed.nonce, &nonce);
+        prop_assert_eq!(parsed.nonce, nonce);
     }
 
     #[test]
@@ -88,15 +96,15 @@ proptest! {
         body in prop::collection::vec(any::<u8>(), 0..256),
     ) {
         let encoded = encode_thread_content(
-            BlockRef { block: t_block, index: t_idx },
-            BlockRef { block: r_block, index: r_idx },
-            BlockRef { block: c_block, index: c_idx },
+            br(t_block, t_idx),
+            br(r_block, r_idx),
+            br(c_block, c_idx),
             &body,
         );
         let (thread, reply_to, continues, decoded_body) = decode_thread_content(&encoded).unwrap();
-        prop_assert_eq!(thread, BlockRef { block: t_block, index: t_idx });
-        prop_assert_eq!(reply_to, BlockRef { block: r_block, index: r_idx });
-        prop_assert_eq!(continues, BlockRef { block: c_block, index: c_idx });
+        prop_assert_eq!(thread, br(t_block, t_idx));
+        prop_assert_eq!(reply_to, br(r_block, r_idx));
+        prop_assert_eq!(continues, br(c_block, c_idx));
         prop_assert_eq!(decoded_body, body.as_slice());
     }
 }

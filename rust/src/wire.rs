@@ -1,4 +1,5 @@
 use crate::error::SampError;
+use crate::types::{BlockRef, Nonce, Pubkey};
 
 pub const SAMP_VERSION: u8 = 0x10;
 
@@ -20,7 +21,7 @@ pub enum ContentType {
 impl ContentType {
     pub const fn to_byte(self) -> u8 {
         match self {
-            Self::Public => SAMP_VERSION | 0x00,
+            Self::Public => SAMP_VERSION,
             Self::Encrypted => SAMP_VERSION | 0x01,
             Self::Thread => SAMP_VERSION | 0x02,
             Self::ChannelCreate => SAMP_VERSION | 0x03,
@@ -52,20 +53,6 @@ impl ContentType {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
-pub struct BlockRef {
-    pub block: u32,
-    pub index: u16,
-}
-
-impl BlockRef {
-    pub const ZERO: Self = Self { block: 0, index: 0 };
-
-    pub fn is_zero(&self) -> bool {
-        self.block == 0 && self.index == 0
-    }
-}
-
 fn encode_block_ref(out: &mut Vec<u8>, r: &BlockRef) {
     out.extend_from_slice(&r.block.to_le_bytes());
     out.extend_from_slice(&r.index.to_le_bytes());
@@ -83,14 +70,14 @@ pub struct Remark {
     pub content_type: ContentType,
     pub recipient: [u8; 32],
     pub view_tag: u8,
-    pub nonce: [u8; 12],
+    pub nonce: Nonce,
     pub content: Vec<u8>,
 }
 
-pub fn encode_public(recipient: &[u8; 32], body: &[u8]) -> Vec<u8> {
+pub fn encode_public(recipient: &Pubkey, body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(33 + body.len());
     out.push(ContentType::Public.to_byte());
-    out.extend_from_slice(recipient);
+    out.extend_from_slice(recipient.as_bytes());
     out.extend_from_slice(body);
     out
 }
@@ -98,13 +85,13 @@ pub fn encode_public(recipient: &[u8; 32], body: &[u8]) -> Vec<u8> {
 pub fn encode_encrypted(
     content_type: ContentType,
     view_tag: u8,
-    nonce: &[u8; 12],
+    nonce: &Nonce,
     encrypted_content: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(14 + encrypted_content.len());
     out.push(content_type.to_byte());
     out.push(view_tag);
-    out.extend_from_slice(nonce);
+    out.extend_from_slice(nonce.as_bytes());
     out.extend_from_slice(encrypted_content);
     out
 }
@@ -141,15 +128,15 @@ pub fn encode_channel_msg(
 }
 
 pub fn encode_group(
-    nonce: &[u8; 12],
-    eph_pubkey: &[u8; 32],
+    nonce: &Nonce,
+    eph_pubkey: &Pubkey,
     capsules: &[u8],
     ciphertext: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(45 + capsules.len() + ciphertext.len());
     out.push(ContentType::Group.to_byte());
-    out.extend_from_slice(nonce);
-    out.extend_from_slice(eph_pubkey);
+    out.extend_from_slice(nonce.as_bytes());
+    out.extend_from_slice(eph_pubkey.as_bytes());
     out.extend_from_slice(capsules);
     out.extend_from_slice(ciphertext);
     out
@@ -179,7 +166,7 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
                 content_type: ContentType::Public,
                 recipient,
                 view_tag: 0,
-                nonce: [0; 12],
+                nonce: Nonce::ZERO,
                 content: body,
             })
         }
@@ -188,14 +175,14 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
                 return Err(SampError::InsufficientData);
             }
             let view_tag = data[1];
-            let mut nonce = [0u8; 12];
-            nonce.copy_from_slice(&data[2..14]);
+            let mut nonce_bytes = [0u8; 12];
+            nonce_bytes.copy_from_slice(&data[2..14]);
             let content = data[14..].to_vec();
             Ok(Remark {
                 content_type: ContentType::from_byte(ct_byte)?,
                 recipient: [0; 32],
                 view_tag,
-                nonce,
+                nonce: Nonce::from_bytes(nonce_bytes),
                 content,
             })
         }
@@ -203,7 +190,7 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
             content_type: ContentType::ChannelCreate,
             recipient: [0; 32],
             view_tag: 0,
-            nonce: [0; 12],
+            nonce: Nonce::ZERO,
             content: data[1..].to_vec(),
         }),
         0x04 => {
@@ -219,7 +206,7 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
                 content_type: ContentType::Channel,
                 recipient,
                 view_tag: 0,
-                nonce: [0; 12],
+                nonce: Nonce::ZERO,
                 content,
             })
         }
@@ -227,14 +214,14 @@ pub fn decode_remark(data: &[u8]) -> Result<Remark, SampError> {
             if data.len() < 45 {
                 return Err(SampError::InsufficientData);
             }
-            let mut nonce = [0u8; 12];
-            nonce.copy_from_slice(&data[1..13]);
+            let mut nonce_bytes = [0u8; 12];
+            nonce_bytes.copy_from_slice(&data[1..13]);
             let content = data[13..].to_vec();
             Ok(Remark {
                 content_type: ContentType::Group,
                 recipient: [0; 32],
                 view_tag: 0,
-                nonce,
+                nonce: Nonce::from_bytes(nonce_bytes),
                 content,
             })
         }
@@ -327,16 +314,16 @@ pub fn decode_group_content(
     Ok((group_ref, reply_to, continues, &content[18..]))
 }
 
-pub fn encode_group_members(member_pubkeys: &[[u8; 32]]) -> Vec<u8> {
+pub fn encode_group_members(member_pubkeys: &[Pubkey]) -> Vec<u8> {
     let mut out = Vec::with_capacity(1 + member_pubkeys.len() * 32);
     out.push(member_pubkeys.len() as u8);
     for pk in member_pubkeys {
-        out.extend_from_slice(pk);
+        out.extend_from_slice(pk.as_bytes());
     }
     out
 }
 
-pub fn decode_group_members(data: &[u8]) -> Result<(Vec<[u8; 32]>, &[u8]), SampError> {
+pub fn decode_group_members(data: &[u8]) -> Result<(Vec<Pubkey>, &[u8]), SampError> {
     if data.is_empty() {
         return Err(SampError::InsufficientData);
     }
@@ -350,13 +337,14 @@ pub fn decode_group_members(data: &[u8]) -> Result<(Vec<[u8; 32]>, &[u8]), SampE
     for i in 0..member_count {
         let mut pk = [0u8; 32];
         pk.copy_from_slice(&data[members_start + i * 32..members_start + (i + 1) * 32]);
-        members.push(pk);
+        members.push(Pubkey::from_bytes(pk));
     }
     Ok((members, &data[members_end..]))
 }
 
 pub fn channel_ref_from_recipient(recipient: &[u8; 32]) -> BlockRef {
-    let block = u32::from_le_bytes(recipient[0..4].try_into().unwrap());
-    let index = u16::from_le_bytes(recipient[4..6].try_into().unwrap());
-    BlockRef { block, index }
+    BlockRef {
+        block: u32::from_le_bytes(recipient[0..4].try_into().unwrap()),
+        index: u16::from_le_bytes(recipient[4..6].try_into().unwrap()),
+    }
 }

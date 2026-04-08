@@ -3,6 +3,8 @@ pub mod error;
 pub mod extrinsic;
 pub mod metadata;
 pub mod scale;
+pub mod secret;
+pub mod types;
 pub mod wire;
 
 pub use encryption::{
@@ -16,11 +18,15 @@ pub use extrinsic::{
 };
 pub use metadata::{ErrorEntry, ErrorTable, Metadata, StorageLayout};
 pub use scale::{decode_bytes, decode_compact, encode_compact};
+pub use secret::Seed;
+pub use types::{
+    BlockHash, BlockNumber, BlockRef, ExtIndex, GenesisHash, Nonce, Pubkey, Signature,
+};
 pub use wire::{
     channel_ref_from_recipient, decode_channel_content, decode_channel_create,
     decode_group_content, decode_group_members, decode_remark, decode_thread_content,
     encode_channel_content, encode_channel_create, encode_channel_msg, encode_encrypted,
-    encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
-    ContentType, Remark, CAPSULE_SIZE, CHANNEL_DESC_MAX, CHANNEL_HEADER_SIZE, CHANNEL_NAME_MAX,
-    SAMP_VERSION, THREAD_HEADER_SIZE,
+    encode_group, encode_group_members, encode_public, encode_thread_content, ContentType,
+    Remark, CAPSULE_SIZE, CHANNEL_DESC_MAX, CHANNEL_HEADER_SIZE, CHANNEL_NAME_MAX, SAMP_VERSION,
+    THREAD_HEADER_SIZE,
 };

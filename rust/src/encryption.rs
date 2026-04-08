@@ -1,7 +1,9 @@
 use crate::error::SampError;
+use crate::secret::Seed;
+use crate::types::{Nonce, Pubkey};
 use crate::wire::{Remark, CAPSULE_SIZE};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
@@ -10,7 +12,7 @@ use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
-pub type GroupEncrypted = ([u8; 32], Vec<u8>, Vec<u8>);
+pub type GroupEncrypted = (Pubkey, Vec<u8>, Vec<u8>);
 
 const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
 const VIEW_TAG_INFO: &[u8] = b"samp-view-tag";
@@ -22,8 +24,8 @@ pub const ENCRYPTED_OVERHEAD: usize = 80;
 
 // Shared primitives (Section 5.1-5.3)
 
-pub fn sr25519_signing_scalar(seed: &[u8; 32]) -> Scalar {
-    let msk = MiniSecretKey::from_bytes(seed).expect("valid 32-byte seed");
+pub fn sr25519_signing_scalar(seed: &Seed) -> Scalar {
+    let msk = MiniSecretKey::from_bytes(seed.expose_secret()).expect("valid 32-byte seed");
     let secret = msk.expand(ExpansionMode::Ed25519);
     let mut scalar_bytes: [u8; 32] = secret.to_bytes()[..32].try_into().unwrap();
     let scalar = Scalar::from_bytes_mod_order(scalar_bytes);
@@ -31,9 +33,13 @@ pub fn sr25519_signing_scalar(seed: &[u8; 32]) -> Scalar {
     scalar
 }
 
-pub fn public_from_seed(seed: &[u8; 32]) -> [u8; 32] {
+pub fn public_from_seed(seed: &Seed) -> Pubkey {
     let scalar = sr25519_signing_scalar(seed);
-    (scalar * RISTRETTO_BASEPOINT_POINT).compress().to_bytes()
+    Pubkey::from_bytes(
+        (scalar * RISTRETTO_BASEPOINT_POINT)
+            .compress()
+            .to_bytes(),
+    )
 }
 
 fn derive_view_tag(shared_secret: &[u8; 32]) -> u8 {
@@ -48,8 +54,8 @@ fn ecdh_shared_secret(scalar: &Scalar, point: &CompressedRistretto) -> Result<[u
     Ok((scalar * p).compress().to_bytes())
 }
 
-fn derive_symmetric_key(shared_secret: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(Some(nonce), shared_secret);
+fn derive_symmetric_key(shared_secret: &[u8; 32], nonce: &Nonce) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(Some(nonce.as_bytes()), shared_secret);
     let mut key = [0u8; 32];
     hk.expand(MESSAGE_KEY_INFO, &mut key).expect("valid HKDF");
     key
@@ -57,24 +63,24 @@ fn derive_symmetric_key(shared_secret: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] 
 
 // 1:1 Encryption (Section 5.6) -- used by 0x11/0x12
 
-fn derive_ephemeral(seed: &[u8; 32], recipient: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(None, seed);
+fn derive_ephemeral(seed: &Seed, recipient: &[u8; 32], nonce: &Nonce) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(None, seed.expose_secret());
     let mut info = [0u8; 44];
     info[..32].copy_from_slice(recipient);
-    info[32..].copy_from_slice(nonce);
+    info[32..].copy_from_slice(nonce.as_bytes());
     let mut okm = [0u8; 32];
     hk.expand(&info, &mut okm).expect("valid HKDF");
     okm
 }
 
-fn derive_seal_key(seed: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(Some(nonce), seed);
+fn derive_seal_key(seed: &Seed, nonce: &Nonce) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(Some(nonce.as_bytes()), seed.expose_secret());
     let mut key = [0u8; 32];
     hk.expand(SEAL_INFO, &mut key).expect("valid HKDF");
     key
 }
 
-fn seal_recipient(recipient: &[u8; 32], sender_seed: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
+fn seal_recipient(recipient: &[u8; 32], sender_seed: &Seed, nonce: &Nonce) -> [u8; 32] {
     let key = derive_seal_key(sender_seed, nonce);
     let mut sealed = [0u8; 32];
     for i in 0..32 {
@@ -84,13 +90,14 @@ fn seal_recipient(recipient: &[u8; 32], sender_seed: &[u8; 32], nonce: &[u8; 12]
 }
 
 pub fn compute_view_tag(
-    sender_seed: &[u8; 32],
-    recipient_pubkey: &CompressedRistretto,
-    nonce: &[u8; 12],
+    sender_seed: &Seed,
+    recipient_pubkey: &Pubkey,
+    nonce: &Nonce,
 ) -> Result<u8, SampError> {
-    let eph_bytes = derive_ephemeral(sender_seed, &recipient_pubkey.to_bytes(), nonce);
+    let recipient_point = recipient_pubkey.to_compressed_ristretto();
+    let eph_bytes = derive_ephemeral(sender_seed, recipient_pubkey.as_bytes(), nonce);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
-    let shared = ecdh_shared_secret(&eph_scalar, recipient_pubkey)?;
+    let shared = ecdh_shared_secret(&eph_scalar, &recipient_point)?;
     Ok(derive_view_tag(&shared))
 }
 
@@ -114,7 +121,7 @@ pub fn check_view_tag(remark: &Remark, signing_scalar: &Scalar) -> Result<u8, Sa
     Ok(derive_view_tag(&shared))
 }
 
-pub fn unseal_recipient(remark: &Remark, sender_seed: &[u8; 32]) -> Result<[u8; 32], SampError> {
+pub fn unseal_recipient(remark: &Remark, sender_seed: &Seed) -> Result<Pubkey, SampError> {
     ensure_one_to_one_remark(remark)?;
     let sealed_to: [u8; 32] = remark.content[32..64].try_into().unwrap();
     let key = derive_seal_key(sender_seed, &remark.nonce);
@@ -122,20 +129,21 @@ pub fn unseal_recipient(remark: &Remark, sender_seed: &[u8; 32]) -> Result<[u8; 
     for i in 0..32 {
         recipient[i] = sealed_to[i] ^ key[i];
     }
-    Ok(recipient)
+    Ok(Pubkey::from_bytes(recipient))
 }
 
 pub fn encrypt(
     plaintext: &[u8],
-    recipient_pubkey: &CompressedRistretto,
-    nonce: &[u8; 12],
-    sender_seed: &[u8; 32],
+    recipient_pubkey: &Pubkey,
+    nonce: &Nonce,
+    sender_seed: &Seed,
 ) -> Result<Vec<u8>, SampError> {
-    let recipient_bytes = recipient_pubkey.to_bytes();
+    let recipient_point = recipient_pubkey.to_compressed_ristretto();
+    let recipient_bytes = *recipient_pubkey.as_bytes();
     let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, nonce);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
-    let mut shared_secret = ecdh_shared_secret(&eph_scalar, recipient_pubkey)?;
+    let mut shared_secret = ecdh_shared_secret(&eph_scalar, &recipient_point)?;
 
     let mut sealed_to = seal_recipient(&recipient_bytes, sender_seed, nonce);
 
@@ -143,7 +151,7 @@ pub fn encrypt(
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let ciphertext_with_tag = cipher
         .encrypt(
-            Nonce::from_slice(nonce),
+            ChaChaNonce::from_slice(nonce.as_bytes()),
             Payload {
                 msg: plaintext,
                 aad: &sealed_to,
@@ -173,7 +181,7 @@ pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, Samp
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
         .decrypt(
-            Nonce::from_slice(&remark.nonce),
+            ChaChaNonce::from_slice(remark.nonce.as_bytes()),
             Payload {
                 msg: &content[64..],
                 aad: &sealed_to,
@@ -185,7 +193,7 @@ pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, Samp
     result
 }
 
-pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<u8>, SampError> {
+pub fn decrypt_as_sender(remark: &Remark, sender_seed: &Seed) -> Result<Vec<u8>, SampError> {
     ensure_one_to_one_remark(remark)?;
     let content = remark.content.as_slice();
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
@@ -198,7 +206,7 @@ pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
         .decrypt(
-            Nonce::from_slice(&remark.nonce),
+            ChaChaNonce::from_slice(remark.nonce.as_bytes()),
             Payload {
                 msg: &content[64..],
                 aad: &sealed_to,
@@ -214,11 +222,11 @@ pub fn decrypt_as_sender(remark: &Remark, sender_seed: &[u8; 32]) -> Result<Vec<
 
 // Multi-Recipient Encryption (Section 5.7) -- used by 0x15 (group)
 
-pub fn derive_group_ephemeral(sender_seed: &[u8; 32], nonce: &[u8; 12]) -> Scalar {
-    let hk = Hkdf::<Sha256>::new(None, sender_seed);
-    let mut info = Vec::with_capacity(GROUP_EPH_INFO.len() + nonce.len());
+pub fn derive_group_ephemeral(sender_seed: &Seed, nonce: &Nonce) -> Scalar {
+    let hk = Hkdf::<Sha256>::new(None, sender_seed.expose_secret());
+    let mut info = Vec::with_capacity(GROUP_EPH_INFO.len() + 12);
     info.extend_from_slice(GROUP_EPH_INFO);
-    info.extend_from_slice(nonce);
+    info.extend_from_slice(nonce.as_bytes());
     let mut okm = [0u8; 32];
     hk.expand(&info, &mut okm).expect("valid HKDF");
     let scalar = Scalar::from_bytes_mod_order(okm);
@@ -226,8 +234,8 @@ pub fn derive_group_ephemeral(sender_seed: &[u8; 32], nonce: &[u8; 12]) -> Scala
     scalar
 }
 
-fn derive_key_wrap(shared_secret: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(Some(nonce), shared_secret);
+fn derive_key_wrap(shared_secret: &[u8; 32], nonce: &Nonce) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(Some(nonce.as_bytes()), shared_secret);
     let mut key = [0u8; 32];
     hk.expand(KEY_WRAP_INFO, &mut key).expect("valid HKDF");
     key
@@ -243,13 +251,13 @@ fn xor32(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 
 pub fn build_capsules(
     content_key: &[u8; 32],
-    member_pubkeys: &[[u8; 32]],
+    member_pubkeys: &[Pubkey],
     eph_scalar: &Scalar,
-    nonce: &[u8; 12],
+    nonce: &Nonce,
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(member_pubkeys.len() * CAPSULE_SIZE);
     for pubkey in member_pubkeys {
-        let point = CompressedRistretto(*pubkey);
+        let point = pubkey.to_compressed_ristretto();
         let mut shared = match ecdh_shared_secret(eph_scalar, &point) {
             Ok(s) => s,
             Err(_) => {
@@ -270,11 +278,12 @@ pub fn build_capsules(
 
 pub fn scan_capsules(
     data: &[u8],
-    eph_pubkey: &CompressedRistretto,
+    eph_pubkey: &Pubkey,
     my_scalar: &Scalar,
-    nonce: &[u8; 12],
+    nonce: &Nonce,
 ) -> Option<(usize, [u8; 32])> {
-    let mut shared = ecdh_shared_secret(my_scalar, eph_pubkey).ok()?;
+    let eph_point = eph_pubkey.to_compressed_ristretto();
+    let mut shared = ecdh_shared_secret(my_scalar, &eph_point).ok()?;
     let my_tag = derive_view_tag(&shared);
     let mut kek = derive_key_wrap(&shared, nonce);
 
@@ -300,9 +309,9 @@ pub fn scan_capsules(
 
 pub fn encrypt_for_group(
     plaintext: &[u8],
-    member_pubkeys: &[[u8; 32]],
-    nonce: &[u8; 12],
-    sender_seed: &[u8; 32],
+    member_pubkeys: &[Pubkey],
+    nonce: &Nonce,
+    sender_seed: &Seed,
 ) -> Result<GroupEncrypted, SampError> {
     let eph_scalar = derive_group_ephemeral(sender_seed, nonce);
     let eph_pubkey = (eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
@@ -314,23 +323,23 @@ pub fn encrypt_for_group(
 
     let cipher = ChaCha20Poly1305::new((&content_key).into());
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(nonce), plaintext)
+        .encrypt(ChaChaNonce::from_slice(nonce.as_bytes()), plaintext)
         .map_err(|_| SampError::DecryptionFailed)?;
 
     content_key.zeroize();
-    Ok((eph_pubkey.to_bytes(), capsules, ciphertext))
+    Ok((Pubkey::from_bytes(eph_pubkey.to_bytes()), capsules, ciphertext))
 }
 
 pub fn decrypt_from_group(
     content: &[u8],
     my_scalar: &Scalar,
-    nonce: &[u8; 12],
+    nonce: &Nonce,
     known_member_count: Option<usize>,
 ) -> Result<Vec<u8>, SampError> {
     if content.len() < 32 {
         return Err(SampError::InsufficientData);
     }
-    let eph_pubkey = CompressedRistretto(content[..32].try_into().unwrap());
+    let eph_pubkey = Pubkey::from_bytes(content[..32].try_into().unwrap());
     let after_eph = &content[32..];
 
     let (capsule_idx, mut content_key) = scan_capsules(after_eph, &eph_pubkey, my_scalar, nonce)
@@ -345,7 +354,7 @@ pub fn decrypt_from_group(
             return Err(SampError::InsufficientData);
         }
         let result = cipher
-            .decrypt(Nonce::from_slice(nonce), &after_eph[ct_start..])
+            .decrypt(ChaChaNonce::from_slice(nonce.as_bytes()), &after_eph[ct_start..])
             .map_err(|_| SampError::DecryptionFailed);
         content_key.zeroize();
         return result;
@@ -358,7 +367,9 @@ pub fn decrypt_from_group(
         if ct_start >= after_eph.len() {
             break;
         }
-        if let Ok(plaintext) = cipher.decrypt(Nonce::from_slice(nonce), &after_eph[ct_start..]) {
+        if let Ok(plaintext) =
+            cipher.decrypt(ChaChaNonce::from_slice(nonce.as_bytes()), &after_eph[ct_start..])
+        {
             content_key.zeroize();
             return Ok(plaintext);
         }

@@ -2,39 +2,48 @@ use samp::encryption::{
     compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group, encrypt, encrypt_for_group,
     sr25519_signing_scalar,
 };
-use samp::wire::BlockRef;
 use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
-    encode_group, encode_group_members, encode_public, encode_thread_content, ContentType,
+    encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
+    ContentType, Nonce, Pubkey, Seed,
 };
 
-use curve25519_dalek::ristretto::CompressedRistretto;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 
-fn alice_seed() -> [u8; 32] {
-    [0xAA; 32]
+fn alice_seed() -> Seed {
+    Seed::from_bytes([0xAA; 32])
 }
-fn bob_seed() -> [u8; 32] {
-    [0xBB; 32]
+fn bob_seed() -> Seed {
+    Seed::from_bytes([0xBB; 32])
 }
-fn eve_seed() -> [u8; 32] {
-    [0xCC; 32]
-}
-
-fn pubkey_from_seed(seed: &[u8; 32]) -> [u8; 32] {
-    MiniSecretKey::from_bytes(seed)
-        .unwrap()
-        .expand_to_keypair(ExpansionMode::Ed25519)
-        .public
-        .to_bytes()
+fn eve_seed() -> Seed {
+    Seed::from_bytes([0xCC; 32])
 }
 
-fn bob_pubkey() -> CompressedRistretto {
-    CompressedRistretto(pubkey_from_seed(&bob_seed()))
+fn pubkey_from_seed(seed: &Seed) -> Pubkey {
+    Pubkey::from_bytes(
+        MiniSecretKey::from_bytes(seed.expose_secret())
+            .unwrap()
+            .expand_to_keypair(ExpansionMode::Ed25519)
+            .public
+            .to_bytes(),
+    )
 }
-fn eve_pubkey() -> CompressedRistretto {
-    CompressedRistretto(pubkey_from_seed(&eve_seed()))
+
+fn bob_pubkey() -> Pubkey {
+    pubkey_from_seed(&bob_seed())
+}
+fn eve_pubkey() -> Pubkey {
+    pubkey_from_seed(&eve_seed())
+}
+
+fn br(b: u32, i: u16) -> BlockRef {
+    BlockRef { block: b, index: i }
+}
+
+fn n(b: u8) -> Nonce {
+    Nonce::from_bytes([b; 12])
 }
 
 // Public message (0x10)
@@ -50,7 +59,7 @@ fn public_message_roundtrip() {
 
     let decoded = decode_remark(&remark).unwrap();
     assert_eq!(decoded.content_type, ContentType::Public);
-    assert_eq!(decoded.recipient, recipient);
+    assert_eq!(&decoded.recipient, recipient.as_bytes());
     assert_eq!(decoded.content, body);
 }
 
@@ -58,7 +67,7 @@ fn public_message_roundtrip() {
 
 #[test]
 fn encrypted_message_roundtrip() {
-    let nonce = [0xEE; 12];
+    let nonce = n(0xEE);
     let plaintext = b"secret message";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
@@ -81,20 +90,11 @@ fn encrypted_message_roundtrip() {
 
 #[test]
 fn thread_message_roundtrip() {
-    let nonce = [0xDD; 12];
+    let nonce = n(0xDD);
     let thread_content = encode_thread_content(
-        BlockRef {
-            block: 50,
-            index: 0,
-        },
-        BlockRef {
-            block: 100,
-            index: 1,
-        },
-        BlockRef {
-            block: 99,
-            index: 0,
-        },
+        br(50, 0),
+        br(100, 1),
+        br(99, 0),
         b"thread message",
     );
     let encrypted = encrypt(&thread_content, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
@@ -111,24 +111,15 @@ fn thread_message_roundtrip() {
     let (thread, reply_to, continues, body) = decode_thread_content(&plaintext).unwrap();
     assert_eq!(
         thread,
-        BlockRef {
-            block: 50,
-            index: 0
-        }
+        br(50, 0)
     );
     assert_eq!(
         reply_to,
-        BlockRef {
-            block: 100,
-            index: 1
-        }
+        br(100, 1)
     );
     assert_eq!(
         continues,
-        BlockRef {
-            block: 99,
-            index: 0
-        }
+        br(99, 0)
     );
     assert_eq!(body, b"thread message");
 }
@@ -152,18 +143,9 @@ fn channel_creation_roundtrip() {
 #[test]
 fn channel_message_roundtrip() {
     let remark = encode_channel_msg(
-        BlockRef {
-            block: 200,
-            index: 3,
-        },
-        BlockRef {
-            block: 199,
-            index: 1,
-        },
-        BlockRef {
-            block: 198,
-            index: 0,
-        },
+        br(200, 3),
+        br(199, 1),
+        br(198, 0),
         b"channel message",
     );
     assert_eq!(remark[0], 0x14);
@@ -175,17 +157,11 @@ fn channel_message_roundtrip() {
     let (reply_to, continues, body) = decode_channel_content(&decoded.content).unwrap();
     assert_eq!(
         reply_to,
-        BlockRef {
-            block: 199,
-            index: 1
-        }
+        br(199, 1)
     );
     assert_eq!(
         continues,
-        BlockRef {
-            block: 198,
-            index: 0
-        }
+        br(198, 0)
     );
     assert_eq!(body, b"channel message");
 }
@@ -199,7 +175,7 @@ fn group_root_message_roundtrip() {
     let eve_pk = pubkey_from_seed(&eve_seed());
     let members = vec![alice_pk, bob_pk, eve_pk];
 
-    let nonce = [0xAB; 12];
+    let nonce = n(0xAB);
 
     let mut root_body = encode_group_members(&members);
     root_body.extend_from_slice(b"Welcome to the group!");
@@ -240,16 +216,10 @@ fn group_message_roundtrip() {
     let bob_pk = pubkey_from_seed(&bob_seed());
     let members = vec![alice_pk, bob_pk];
 
-    let nonce = [0xCD; 12];
+    let nonce = n(0xCD);
     let plaintext = encode_thread_content(
-        BlockRef {
-            block: 100,
-            index: 1,
-        },
-        BlockRef {
-            block: 99,
-            index: 0,
-        },
+        br(100, 1),
+        br(99, 0),
         BlockRef::ZERO,
         b"hello group",
     );
@@ -267,17 +237,11 @@ fn group_message_roundtrip() {
     let (group_ref, reply_to, continues, body) = decode_group_content(&decrypted).unwrap();
     assert_eq!(
         group_ref,
-        BlockRef {
-            block: 100,
-            index: 1
-        }
+        br(100, 1)
     );
     assert_eq!(
         reply_to,
-        BlockRef {
-            block: 99,
-            index: 0
-        }
+        br(99, 0)
     );
     assert!(continues.is_zero());
     assert_eq!(body, b"hello group");
@@ -293,12 +257,9 @@ fn group_trial_aead_without_known_n() {
     let eve_pk = pubkey_from_seed(&eve_seed());
     let members = vec![alice_pk, bob_pk, eve_pk];
 
-    let nonce = [0xEF; 12];
+    let nonce = n(0xEF);
     let plaintext = encode_thread_content(
-        BlockRef {
-            block: 500,
-            index: 2,
-        },
+        br(500, 2),
         BlockRef::ZERO,
         BlockRef::ZERO,
         b"trial aead test",
@@ -314,10 +275,7 @@ fn group_trial_aead_without_known_n() {
     let (group_ref, _, _, body) = decode_group_content(&decrypted).unwrap();
     assert_eq!(
         group_ref,
-        BlockRef {
-            block: 500,
-            index: 2
-        }
+        br(500, 2)
     );
     assert_eq!(body, b"trial aead test");
 }
@@ -326,7 +284,7 @@ fn group_trial_aead_without_known_n() {
 
 #[test]
 fn encrypted_message_unreadable_by_third_party() {
-    let nonce = [0xDD; 12];
+    let nonce = n(0xDD);
     let plaintext = b"secret between Alice and Bob";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
@@ -343,7 +301,7 @@ fn encrypted_message_unreadable_by_third_party() {
 
 #[test]
 fn sender_can_decrypt_own_message() {
-    let nonce = [0xFF; 12];
+    let nonce = n(0xFF);
     let plaintext = b"my own message";
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
@@ -356,7 +314,7 @@ fn sender_can_decrypt_own_message() {
 
 #[test]
 fn view_tag_filters_correctly() {
-    let nonce = [0x11; 12];
+    let nonce = n(0x11);
     let sender_tag = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
     let eve_tag = compute_view_tag(&alice_seed(), &eve_pubkey(), &nonce).unwrap();
     if eve_tag == sender_tag {
@@ -374,18 +332,9 @@ fn content_type_reserved_rejected() {
 
 #[test]
 fn thread_content_roundtrip() {
-    let thread = BlockRef {
-        block: 50,
-        index: 0,
-    };
-    let reply_to = BlockRef {
-        block: 100,
-        index: 3,
-    };
-    let continues = BlockRef {
-        block: 99,
-        index: 1,
-    };
+    let thread = br(50, 0);
+    let reply_to = br(100, 3);
+    let continues = br(99, 1);
     let body = b"Hello in thread";
 
     let content = encode_thread_content(thread, reply_to, continues, body);
@@ -398,14 +347,8 @@ fn thread_content_roundtrip() {
 
 #[test]
 fn channel_content_roundtrip() {
-    let reply_to = BlockRef {
-        block: 100,
-        index: 3,
-    };
-    let continues = BlockRef {
-        block: 99,
-        index: 1,
-    };
+    let reply_to = br(100, 3);
+    let continues = br(99, 1);
     let body = b"Hello in channel";
 
     let content = encode_channel_content(reply_to, continues, body);
@@ -419,18 +362,9 @@ fn channel_content_roundtrip() {
 fn channel_message_is_lean() {
     let body = b"Did he use MEV shield?";
     let remark = encode_channel_msg(
-        BlockRef {
-            block: 520,
-            index: 14,
-        },
-        BlockRef {
-            block: 519,
-            index: 2,
-        },
-        BlockRef {
-            block: 518,
-            index: 0,
-        },
+        br(520, 14),
+        br(519, 2),
+        br(518, 0),
         body,
     );
     assert_eq!(remark.len(), 41);
