@@ -12,8 +12,6 @@ pub enum SampError {
     BlockNumberOverflow(u64),
     ExtIndexOverflow(usize),
     InvalidCapsules(usize),
-    InvalidMessageBody(usize),
-    InvalidChainName(usize),
     Ss58PrefixUnsupported(u16),
     Ss58InvalidBase58,
     Ss58TooShort,
@@ -33,10 +31,6 @@ impl fmt::Display for SampError {
             Self::BlockNumberOverflow(n) => write!(f, "block number {n} exceeds u32::MAX"),
             Self::ExtIndexOverflow(n) => write!(f, "ext index {n} exceeds u16::MAX"),
             Self::InvalidCapsules(n) => write!(f, "capsules length {n} not a multiple of 33"),
-            Self::InvalidMessageBody(n) => {
-                write!(f, "message body must be 0..=4096 bytes (got {n})")
-            }
-            Self::InvalidChainName(n) => write!(f, "chain name must be 1..=64 bytes (got {n})"),
             Self::Ss58PrefixUnsupported(p) => {
                 write!(f, "SS58 prefix {p} requires two-byte encoding (unsupported)")
             }

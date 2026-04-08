@@ -6,18 +6,13 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
-    ChannelDescription, ChannelName, ContentType, MessageBody, Nonce, Plaintext, Pubkey, Remark,
-    Seed,
+    ChannelDescription, ChannelName, ContentType, Nonce, Plaintext, Pubkey, Remark, Seed,
 };
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 
 fn pt(b: &[u8]) -> Plaintext {
     Plaintext::from_bytes(b.to_vec())
-}
-
-fn mb(s: &str) -> MessageBody {
-    MessageBody::parse(s.to_string()).expect("valid body")
 }
 
 fn cn(s: &str) -> ChannelName {
@@ -68,8 +63,8 @@ fn n(b: u8) -> Nonce {
 #[test]
 fn public_message_roundtrip() {
     let recipient = pubkey_from_seed(&bob_seed());
-    let body = mb("Hello Bob!");
-    let remark = encode_public(&recipient, &body);
+    let body = "Hello Bob!";
+    let remark = encode_public(&recipient, body);
 
     assert_eq!(remark.as_bytes()[0], 0x10);
     assert_eq!(remark.len(), 33 + body.len());
@@ -166,7 +161,7 @@ fn channel_message_roundtrip() {
         br(200, 3),
         br(199, 1),
         br(198, 0),
-        &mb("channel message"),
+        "channel message",
     );
     assert_eq!(remark.as_bytes()[0], 0x14);
     assert_eq!(remark.len(), 19 + 15);
@@ -396,12 +391,12 @@ fn channel_content_roundtrip() {
 
 #[test]
 fn channel_message_is_lean() {
-    let body = mb("Did he use MEV shield?");
+    let body = "Did he use MEV shield?";
     let remark = encode_channel_msg(
         br(520, 14),
         br(519, 2),
         br(518, 0),
-        &body,
+        body,
     );
     assert_eq!(remark.len(), 41);
 }

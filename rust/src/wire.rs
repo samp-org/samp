@@ -1,7 +1,7 @@
 use crate::error::SampError;
 use crate::types::{
-    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex,
-    MessageBody, Nonce, Pubkey, RemarkBytes, ViewTag,
+    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex, Nonce,
+    Pubkey, RemarkBytes, ViewTag,
 };
 
 pub const SAMP_VERSION: u8 = 0x10;
@@ -88,7 +88,7 @@ pub struct GroupPayload {
 pub enum Remark {
     Public {
         recipient: Pubkey,
-        body: MessageBody,
+        body: String,
     },
     Encrypted(EncryptedPayload),
     Thread(EncryptedPayload),
@@ -121,11 +121,12 @@ impl Remark {
     }
 }
 
-pub fn encode_public(recipient: &Pubkey, body: &MessageBody) -> RemarkBytes {
-    let mut out = Vec::with_capacity(33 + body.len());
+pub fn encode_public(recipient: &Pubkey, body: &str) -> RemarkBytes {
+    let body_bytes = body.as_bytes();
+    let mut out = Vec::with_capacity(33 + body_bytes.len());
     out.push(ContentType::Public.to_byte());
     out.extend_from_slice(recipient.as_bytes());
-    out.extend_from_slice(body.as_bytes());
+    out.extend_from_slice(body_bytes);
     RemarkBytes::from_bytes(out)
 }
 
@@ -157,14 +158,15 @@ pub fn encode_channel_msg(
     channel_ref: BlockRef,
     reply_to: BlockRef,
     continues: BlockRef,
-    body: &MessageBody,
+    body: &str,
 ) -> RemarkBytes {
-    let mut out = Vec::with_capacity(19 + body.len());
+    let body_bytes = body.as_bytes();
+    let mut out = Vec::with_capacity(19 + body_bytes.len());
     out.push(ContentType::Channel.to_byte());
     encode_block_ref(&mut out, &channel_ref);
     encode_block_ref(&mut out, &reply_to);
     encode_block_ref(&mut out, &continues);
-    out.extend_from_slice(body.as_bytes());
+    out.extend_from_slice(body_bytes);
     RemarkBytes::from_bytes(out)
 }
 
@@ -200,9 +202,9 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
             }
             let mut recipient_bytes = [0u8; 32];
             recipient_bytes.copy_from_slice(&data[1..33]);
-            let body_str =
-                std::str::from_utf8(&data[33..]).map_err(|_| SampError::InvalidUtf8)?;
-            let body = MessageBody::parse(body_str.to_string())?;
+            let body = std::str::from_utf8(&data[33..])
+                .map_err(|_| SampError::InvalidUtf8)?
+                .to_string();
             Ok(Remark::Public {
                 recipient: Pubkey::from_bytes(recipient_bytes),
                 body,

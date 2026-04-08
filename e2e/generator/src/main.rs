@@ -173,8 +173,7 @@ fn main() {
 
     // === Public message ===
     let body = b"Hello";
-    let body_typed = samp::MessageBody::parse("Hello").unwrap();
-    let public_remark = encode_public(&bob_pubkey, &body_typed);
+    let public_remark = encode_public(&bob_pubkey, "Hello");
 
     // === Encrypted message with full intermediates ===
     let plaintext = b"Hello Bob";
@@ -301,12 +300,11 @@ fn main() {
 
     // === Channel message ===
     let ch_body = b"Did he use MEV shield?";
-    let ch_body_typed = samp::MessageBody::parse("Did he use MEV shield?").unwrap();
     let ch_remark = encode_channel_msg(
         BlockRef::from_parts(100, 2),
         BlockRef::from_parts(99, 1),
         BlockRef::ZERO,
-        &ch_body_typed,
+        "Did he use MEV shield?",
     );
 
     // === Channel creation ===
@@ -374,8 +372,7 @@ fn main() {
     );
 
     // === Edge cases ===
-    let empty_body = samp::MessageBody::parse("").unwrap();
-    let empty_body_public = encode_public(&bob_pubkey, &empty_body);
+    let empty_body_public = encode_public(&bob_pubkey, "");
     let empty_plaintext = samp::Plaintext::from_bytes(Vec::new());
     let min_encrypted =
         encryption::encrypt(&empty_plaintext, &bob_pubkey, &nonce, &alice_seed).unwrap();

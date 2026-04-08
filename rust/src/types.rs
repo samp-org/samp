@@ -406,47 +406,6 @@ impl fmt::Debug for ExtrinsicBytes {
     }
 }
 
-pub const MESSAGE_BODY_MAX_BYTES: usize = 4096;
-
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct MessageBody(String);
-
-impl MessageBody {
-    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
-        let s = s.into();
-        if s.len() > MESSAGE_BODY_MAX_BYTES {
-            return Err(SampError::InvalidMessageBody(s.len()));
-        }
-        Ok(Self(s))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl fmt::Debug for MessageBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MessageBody({} bytes)", self.0.len())
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChannelName(String);
 
@@ -579,9 +538,6 @@ impl Ss58Address {
         self.prefix
     }
 
-    pub fn short(&self) -> Ss58Short {
-        Ss58Short::from_address(&self.address)
-    }
 }
 
 impl fmt::Debug for Ss58Address {
@@ -593,71 +549,6 @@ impl fmt::Debug for Ss58Address {
 impl fmt::Display for Ss58Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.address)
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Ss58Short(String);
-
-impl Ss58Short {
-    fn from_address(full: &str) -> Self {
-        let s = if full.len() > 12 {
-            format!("{}...{}", &full[..6], &full[full.len() - 4..])
-        } else {
-            full.to_string()
-        };
-        Self(s)
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for Ss58Short {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Ss58Short({})", self.0)
-    }
-}
-
-impl fmt::Display for Ss58Short {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-pub const CHAIN_NAME_MAX_BYTES: usize = 64;
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct ChainName(String);
-
-impl ChainName {
-    pub fn parse(s: impl Into<String>) -> Result<Self, SampError> {
-        let s = s.into();
-        if s.is_empty() || s.len() > CHAIN_NAME_MAX_BYTES {
-            return Err(SampError::InvalidChainName(s.len()));
-        }
-        Ok(Self(s))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
-
-impl fmt::Debug for ChainName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ChainName({:?})", self.0)
-    }
-}
-
-impl fmt::Display for ChainName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 

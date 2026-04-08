@@ -12,13 +12,12 @@ proptest! {
         body in "[\\x20-\\x7e]{0,256}",
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
-        let body_typed = MessageBody::parse(body.clone()).unwrap();
-        let remark = encode_public(&recipient, &body_typed);
+        let remark = encode_public(&recipient, &body);
         let Remark::Public { recipient: r, body: b } = decode_remark(&remark).unwrap() else {
             panic!("expected Public");
         };
         prop_assert_eq!(r, recipient);
-        prop_assert_eq!(b.as_str(), body.as_str());
+        prop_assert_eq!(b, body);
     }
 
     #[test]
@@ -28,12 +27,11 @@ proptest! {
         ct_block in any::<u32>(), ct_idx in any::<u16>(),
         body in "[\\x20-\\x7e]{0,256}",
     ) {
-        let body_typed = MessageBody::parse(body).unwrap();
         let remark = encode_channel_msg(
             br(ch_block, ch_idx),
             br(rt_block, rt_idx),
             br(ct_block, ct_idx),
-            &body_typed,
+            &body,
         );
         let parsed = decode_remark(&remark).unwrap();
         assert!(matches!(parsed, Remark::Channel { .. }));
@@ -74,8 +72,7 @@ proptest! {
         body in "[\\x20-\\x7e]{0,64}",
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
-        let body_typed = MessageBody::parse(body).unwrap();
-        let remark = encode_public(&recipient, &body_typed);
+        let remark = encode_public(&recipient, &body);
         prop_assert_eq!(remark.as_bytes()[0] & 0xF0, 0x10);
     }
 
