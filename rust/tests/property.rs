@@ -13,9 +13,11 @@ proptest! {
     ) {
         let recipient = Pubkey::from_bytes(recipient_bytes);
         let remark = encode_public(&recipient, body.as_bytes());
-        let parsed = decode_remark(&remark).unwrap();
-        prop_assert_eq!(parsed.recipient, recipient_bytes);
-        prop_assert_eq!(parsed.content, body.as_bytes());
+        let Remark::Public { recipient: r, body: b } = decode_remark(&remark).unwrap() else {
+            panic!("expected Public");
+        };
+        prop_assert_eq!(r, recipient);
+        prop_assert_eq!(b, body.as_bytes());
     }
 
     #[test]
@@ -32,7 +34,7 @@ proptest! {
             &body,
         );
         let parsed = decode_remark(&remark).unwrap();
-        assert!(matches!(parsed.content_type, ContentType::Channel));
+        assert!(matches!(parsed, Remark::Channel { .. }));
     }
 
     #[test]
@@ -41,10 +43,11 @@ proptest! {
         desc in "[a-z]{0,128}",
     ) {
         let remark = encode_channel_create(&name, &desc).unwrap();
-        let parsed = decode_remark(&remark).unwrap();
-        let (n, d) = decode_channel_create(&parsed.content).unwrap();
-        prop_assert_eq!(n, name.as_str());
-        prop_assert_eq!(d, desc.as_str());
+        let Remark::ChannelCreate { name: n, description: d } = decode_remark(&remark).unwrap() else {
+            panic!("expected ChannelCreate");
+        };
+        prop_assert_eq!(n, name);
+        prop_assert_eq!(d, desc);
     }
 
     #[test]
@@ -83,9 +86,10 @@ proptest! {
         let capsules = vec![0u8; n_capsules * 33];
         let ciphertext = vec![0u8; ct_len];
         let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
-        let parsed = decode_remark(&remark).unwrap();
-        assert!(matches!(parsed.content_type, ContentType::Group));
-        prop_assert_eq!(parsed.nonce, nonce);
+        let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
+            panic!("expected Group");
+        };
+        prop_assert_eq!(payload.nonce, nonce);
     }
 
     #[test]

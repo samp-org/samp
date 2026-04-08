@@ -6,7 +6,7 @@ use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
-    ContentType, Nonce, Pubkey, Seed,
+    ContentType, Nonce, Pubkey, Remark, Seed,
 };
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
@@ -57,10 +57,11 @@ fn public_message_roundtrip() {
     assert_eq!(remark[0], 0x10);
     assert_eq!(remark.len(), 33 + body.len());
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Public);
-    assert_eq!(&decoded.recipient, recipient.as_bytes());
-    assert_eq!(decoded.content, body);
+    let Remark::Public { recipient: r, body: b } = decode_remark(&remark).unwrap() else {
+        panic!("expected Public");
+    };
+    assert_eq!(r, recipient);
+    assert_eq!(b, body);
 }
 
 // Encrypted message (0x11)
@@ -75,14 +76,15 @@ fn encrypted_message_roundtrip() {
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x11);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Encrypted);
-    assert_eq!(decoded.view_tag, vt);
-    assert_eq!(decoded.nonce, nonce);
-    assert_eq!(decoded.content, encrypted);
+    let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Encrypted");
+    };
+    assert_eq!(payload.view_tag, vt);
+    assert_eq!(payload.nonce, nonce);
+    assert_eq!(payload.encrypted_content, encrypted);
 
     let scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt(&decoded, &scalar).unwrap();
+    let decrypted = decrypt(&payload, &scalar).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 
@@ -103,11 +105,12 @@ fn thread_message_roundtrip() {
     let remark = encode_encrypted(ContentType::Thread, vt, &nonce, &encrypted);
     assert_eq!(remark[0], 0x12);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Thread);
+    let Remark::Thread(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Thread");
+    };
 
     let scalar = sr25519_signing_scalar(&bob_seed());
-    let plaintext = decrypt(&decoded, &scalar).unwrap();
+    let plaintext = decrypt(&payload, &scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(&plaintext).unwrap();
     assert_eq!(
         thread,
@@ -131,11 +134,11 @@ fn channel_creation_roundtrip() {
     let remark = samp::encode_channel_create("general", "The main channel").unwrap();
     assert_eq!(remark[0], 0x13);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::ChannelCreate);
-    let (name, desc) = samp::wire::decode_channel_create(&decoded.content).unwrap();
+    let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
+        panic!("expected ChannelCreate");
+    };
     assert_eq!(name, "general");
-    assert_eq!(desc, "The main channel");
+    assert_eq!(description, "The main channel");
 }
 
 // Channel message (0x14)
@@ -151,10 +154,12 @@ fn channel_message_roundtrip() {
     assert_eq!(remark[0], 0x14);
     assert_eq!(remark.len(), 19 + 15);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Channel);
+    let Remark::Channel { channel_ref, content } = decode_remark(&remark).unwrap() else {
+        panic!("expected Channel");
+    };
+    assert_eq!(channel_ref, br(200, 3));
 
-    let (reply_to, continues, body) = decode_channel_content(&decoded.content).unwrap();
+    let (reply_to, continues, body) = decode_channel_content(&content).unwrap();
     assert_eq!(
         reply_to,
         br(199, 1)
@@ -188,12 +193,13 @@ fn group_root_message_roundtrip() {
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
     assert_eq!(remark[0], 0x15);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Group);
-    assert_eq!(decoded.nonce, nonce);
+    let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Group");
+    };
+    assert_eq!(payload.nonce, nonce);
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(3)).unwrap();
     let (group_ref, _reply_to, _continues, body) = decode_group_content(&decrypted).unwrap();
     assert!(group_ref.is_zero());
     let (member_list, first_msg) = decode_group_members(body).unwrap();
@@ -202,11 +208,11 @@ fn group_root_message_roundtrip() {
     assert_eq!(first_msg, b"Welcome to the group!");
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    let decrypted = decrypt_from_group(&decoded.content, &eve_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload.content, &eve_scalar, &nonce, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
 
     let alice_scalar = sr25519_signing_scalar(&alice_seed());
-    let decrypted = decrypt_from_group(&decoded.content, &alice_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload.content, &alice_scalar, &nonce, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 
@@ -229,11 +235,12 @@ fn group_message_roundtrip() {
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
     assert_eq!(remark[0], 0x15);
 
-    let decoded = decode_remark(&remark).unwrap();
-    assert_eq!(decoded.content_type, ContentType::Group);
+    let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Group");
+    };
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, Some(2)).unwrap();
+    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(2)).unwrap();
     let (group_ref, reply_to, continues, body) = decode_group_content(&decrypted).unwrap();
     assert_eq!(
         group_ref,
@@ -247,7 +254,7 @@ fn group_message_roundtrip() {
     assert_eq!(body, b"hello group");
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    assert!(decrypt_from_group(&decoded.content, &eve_scalar, &nonce, Some(2)).is_err());
+    assert!(decrypt_from_group(&payload.content, &eve_scalar, &nonce, Some(2)).is_err());
 }
 
 #[test]
@@ -268,10 +275,12 @@ fn group_trial_aead_without_known_n() {
     let (eph_pubkey, capsules, ciphertext) =
         encrypt_for_group(&plaintext, &members, &nonce, &alice_seed()).unwrap();
     let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
-    let decoded = decode_remark(&remark).unwrap();
+    let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Group");
+    };
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&decoded.content, &bob_scalar, &nonce, None).unwrap();
+    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, None).unwrap();
     let (group_ref, _, _, body) = decode_group_content(&decrypted).unwrap();
     assert_eq!(
         group_ref,
@@ -289,14 +298,16 @@ fn encrypted_message_unreadable_by_third_party() {
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
-    let decoded = decode_remark(&remark).unwrap();
+    let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Encrypted");
+    };
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt(&decoded, &bob_scalar).unwrap();
+    let decrypted = decrypt(&payload, &bob_scalar).unwrap();
     assert_eq!(decrypted, plaintext);
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    assert!(decrypt(&decoded, &eve_scalar).is_err());
+    assert!(decrypt(&payload, &eve_scalar).is_err());
 }
 
 #[test]
@@ -306,9 +317,11 @@ fn sender_can_decrypt_own_message() {
     let encrypted = encrypt(plaintext, &bob_pubkey(), &nonce, &alice_seed()).unwrap();
     let vt = compute_view_tag(&alice_seed(), &bob_pubkey(), &nonce).unwrap();
     let remark = encode_encrypted(ContentType::Encrypted, vt, &nonce, &encrypted);
-    let decoded = decode_remark(&remark).unwrap();
+    let Remark::Encrypted(payload) = decode_remark(&remark).unwrap() else {
+        panic!("expected Encrypted");
+    };
 
-    let decrypted = decrypt_as_sender(&decoded, &alice_seed()).unwrap();
+    let decrypted = decrypt_as_sender(&payload, &alice_seed()).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 

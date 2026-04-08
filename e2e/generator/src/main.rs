@@ -226,7 +226,9 @@ fn main() {
 
     let enc_remark = encode_encrypted(ContentType::Encrypted, view_tag, &nonce, &encrypted_content);
 
-    let parsed = decode_remark(&enc_remark).unwrap();
+    let samp::Remark::Encrypted(parsed) = decode_remark(&enc_remark).unwrap() else {
+        panic!("expected Encrypted");
+    };
     let decrypted = encryption::decrypt(&parsed, &bob_scalar).unwrap();
     assert_eq!(&decrypted, plaintext);
 
@@ -254,7 +256,9 @@ fn main() {
         &thread_encrypted,
     );
 
-    let thread_parsed = decode_remark(&thread_remark).unwrap();
+    let samp::Remark::Thread(thread_parsed) = decode_remark(&thread_remark).unwrap() else {
+        panic!("expected Thread");
+    };
     let thread_decrypted = encryption::decrypt(&thread_parsed, &bob_scalar).unwrap();
     assert_eq!(thread_decrypted, thread_plaintext);
 

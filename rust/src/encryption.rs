@@ -1,7 +1,7 @@
 use crate::error::SampError;
 use crate::secret::Seed;
 use crate::types::{Nonce, Pubkey};
-use crate::wire::{Remark, CAPSULE_SIZE};
+use crate::wire::{EncryptedPayload, CAPSULE_SIZE};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
@@ -101,30 +101,24 @@ pub fn compute_view_tag(
     Ok(derive_view_tag(&shared))
 }
 
-fn ensure_one_to_one_remark(remark: &Remark) -> Result<(), SampError> {
-    if !matches!(
-        remark.content_type,
-        crate::wire::ContentType::Encrypted | crate::wire::ContentType::Thread
-    ) {
-        return Err(SampError::DecryptionFailed);
-    }
-    if remark.content.len() < ENCRYPTED_OVERHEAD {
+fn ensure_payload_size(payload: &EncryptedPayload) -> Result<(), SampError> {
+    if payload.encrypted_content.len() < ENCRYPTED_OVERHEAD {
         return Err(SampError::InsufficientData);
     }
     Ok(())
 }
 
-pub fn check_view_tag(remark: &Remark, signing_scalar: &Scalar) -> Result<u8, SampError> {
-    ensure_one_to_one_remark(remark)?;
-    let eph_pubkey = CompressedRistretto(remark.content[..32].try_into().unwrap());
+pub fn check_view_tag(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<u8, SampError> {
+    ensure_payload_size(payload)?;
+    let eph_pubkey = CompressedRistretto(payload.encrypted_content[..32].try_into().unwrap());
     let shared = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
     Ok(derive_view_tag(&shared))
 }
 
-pub fn unseal_recipient(remark: &Remark, sender_seed: &Seed) -> Result<Pubkey, SampError> {
-    ensure_one_to_one_remark(remark)?;
-    let sealed_to: [u8; 32] = remark.content[32..64].try_into().unwrap();
-    let key = derive_seal_key(sender_seed, &remark.nonce);
+pub fn unseal_recipient(payload: &EncryptedPayload, sender_seed: &Seed) -> Result<Pubkey, SampError> {
+    ensure_payload_size(payload)?;
+    let sealed_to: [u8; 32] = payload.encrypted_content[32..64].try_into().unwrap();
+    let key = derive_seal_key(sender_seed, &payload.nonce);
     let mut recipient = [0u8; 32];
     for i in 0..32 {
         recipient[i] = sealed_to[i] ^ key[i];
@@ -171,17 +165,17 @@ pub fn encrypt(
     Ok(content)
 }
 
-pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, SampError> {
-    ensure_one_to_one_remark(remark)?;
-    let content = remark.content.as_slice();
+pub fn decrypt(payload: &EncryptedPayload, signing_scalar: &Scalar) -> Result<Vec<u8>, SampError> {
+    ensure_payload_size(payload)?;
+    let content = payload.encrypted_content.as_slice();
     let eph_pubkey = CompressedRistretto(content[..32].try_into().unwrap());
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
     let mut shared_secret = ecdh_shared_secret(signing_scalar, &eph_pubkey)?;
-    let mut sym_key = derive_symmetric_key(&shared_secret, &remark.nonce);
+    let mut sym_key = derive_symmetric_key(&shared_secret, &payload.nonce);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
         .decrypt(
-            ChaChaNonce::from_slice(remark.nonce.as_bytes()),
+            ChaChaNonce::from_slice(payload.nonce.as_bytes()),
             Payload {
                 msg: &content[64..],
                 aad: &sealed_to,
@@ -193,20 +187,23 @@ pub fn decrypt(remark: &Remark, signing_scalar: &Scalar) -> Result<Vec<u8>, Samp
     result
 }
 
-pub fn decrypt_as_sender(remark: &Remark, sender_seed: &Seed) -> Result<Vec<u8>, SampError> {
-    ensure_one_to_one_remark(remark)?;
-    let content = remark.content.as_slice();
+pub fn decrypt_as_sender(
+    payload: &EncryptedPayload,
+    sender_seed: &Seed,
+) -> Result<Vec<u8>, SampError> {
+    ensure_payload_size(payload)?;
+    let content = payload.encrypted_content.as_slice();
     let sealed_to: [u8; 32] = content[32..64].try_into().unwrap();
-    let mut recipient_bytes = seal_recipient(&sealed_to, sender_seed, &remark.nonce);
+    let mut recipient_bytes = seal_recipient(&sealed_to, sender_seed, &payload.nonce);
     let recipient_pubkey = CompressedRistretto(recipient_bytes);
-    let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, &remark.nonce);
+    let mut eph_bytes = derive_ephemeral(sender_seed, &recipient_bytes, &payload.nonce);
     let eph_scalar = Scalar::from_bytes_mod_order(eph_bytes);
     let mut shared_secret = ecdh_shared_secret(&eph_scalar, &recipient_pubkey)?;
-    let mut sym_key = derive_symmetric_key(&shared_secret, &remark.nonce);
+    let mut sym_key = derive_symmetric_key(&shared_secret, &payload.nonce);
     let cipher = ChaCha20Poly1305::new((&sym_key).into());
     let result = cipher
         .decrypt(
-            ChaChaNonce::from_slice(remark.nonce.as_bytes()),
+            ChaChaNonce::from_slice(payload.nonce.as_bytes()),
             Payload {
                 msg: &content[64..],
                 aad: &sealed_to,

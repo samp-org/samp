@@ -186,9 +186,10 @@ fn conformance_public_message_encode() {
 #[test]
 fn conformance_public_message_decode() {
     let v = load_vectors();
-    let parsed = decode_remark(&h(&v.public_message.remark)).unwrap();
-    assert_eq!(parsed.content_type, ContentType::Public);
-    assert_eq!(parsed.content, h(&v.public_message.body));
+    let Remark::Public { body, .. } = decode_remark(&h(&v.public_message.remark)).unwrap() else {
+        panic!("expected Public");
+    };
+    assert_eq!(body, h(&v.public_message.body));
 }
 
 #[test]
@@ -233,8 +234,10 @@ fn conformance_encrypted_recipient_decrypt() {
     let v = load_vectors();
     let bob_scalar = encryption::sr25519_signing_scalar(&seed(&v.bob.seed));
     let remark_bytes = h(&v.encrypted_message.remark);
-    let parsed = decode_remark(&remark_bytes).unwrap();
-    let plaintext = encryption::decrypt(&parsed, &bob_scalar).unwrap();
+    let Remark::Encrypted(payload) = decode_remark(&remark_bytes).unwrap() else {
+        panic!("expected Encrypted");
+    };
+    let plaintext = encryption::decrypt(&payload, &bob_scalar).unwrap();
     assert_eq!(plaintext, h(&v.encrypted_message.plaintext));
 }
 
@@ -243,8 +246,10 @@ fn conformance_sender_self_decrypt() {
     let v = load_vectors();
     let alice_seed = seed(&v.alice.seed);
     let remark_bytes = h(&v.encrypted_message.remark);
-    let parsed = decode_remark(&remark_bytes).unwrap();
-    let plaintext = encryption::decrypt_as_sender(&parsed, &alice_seed).unwrap();
+    let Remark::Encrypted(payload) = decode_remark(&remark_bytes).unwrap() else {
+        panic!("expected Encrypted");
+    };
+    let plaintext = encryption::decrypt_as_sender(&payload, &alice_seed).unwrap();
     assert_eq!(plaintext, h(&v.sender_self_decryption.plaintext));
 
     assert_eq!(
@@ -278,8 +283,10 @@ fn conformance_thread_message() {
 
     let vt = encryption::compute_view_tag(&alice_seed, &bob_pubkey, &n).unwrap();
     let remark_bytes = encode_encrypted(ContentType::Thread, vt, &n, &encrypted);
-    let parsed_remark = decode_remark(&remark_bytes).unwrap();
-    let decrypted = encryption::decrypt(&parsed_remark, &bob_scalar).unwrap();
+    let Remark::Thread(payload) = decode_remark(&remark_bytes).unwrap() else {
+        panic!("expected Thread");
+    };
+    let decrypted = encryption::decrypt(&payload, &bob_scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(&decrypted).unwrap();
     assert_eq!(thread.block, th[0]);
     assert_eq!(reply_to.block, rt[0]);
@@ -307,19 +314,21 @@ fn conformance_channel_create() {
         encode_channel_create(&v.channel_create.name, &v.channel_create.description).unwrap();
     assert_eq!(remark, h(&v.channel_create.remark));
 
-    let parsed = decode_remark(&remark).unwrap();
-    let (name, desc) = decode_channel_create(&parsed.content).unwrap();
+    let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
+        panic!("expected ChannelCreate");
+    };
     assert_eq!(name, v.channel_create.name);
-    assert_eq!(desc, v.channel_create.description);
+    assert_eq!(description, v.channel_create.description);
 }
 
 #[test]
 fn conformance_edge_empty_body_public() {
     let v = load_vectors();
     let remark = h(&v.edge_cases.empty_body_public);
-    let parsed = decode_remark(&remark).unwrap();
-    assert_eq!(parsed.content_type, ContentType::Public);
-    assert!(parsed.content.is_empty());
+    let Remark::Public { body, .. } = decode_remark(&remark).unwrap() else {
+        panic!("expected Public");
+    };
+    assert!(body.is_empty());
 }
 
 #[test]
@@ -327,26 +336,28 @@ fn conformance_edge_min_encrypted() {
     let v = load_vectors();
     let remark = h(&v.edge_cases.min_encrypted);
     let parsed = decode_remark(&remark).unwrap();
-    assert!(matches!(parsed.content_type, ContentType::Encrypted));
+    assert!(matches!(parsed, Remark::Encrypted(_)));
 }
 
 #[test]
 fn conformance_edge_empty_desc_channel_create() {
     let v = load_vectors();
     let remark = h(&v.edge_cases.empty_desc_channel_create);
-    let parsed = decode_remark(&remark).unwrap();
-    let (name, desc) = decode_channel_create(&parsed.content).unwrap();
+    let Remark::ChannelCreate { name, description } = decode_remark(&remark).unwrap() else {
+        panic!("expected ChannelCreate");
+    };
     assert_eq!(name, "test");
-    assert_eq!(desc, "");
+    assert_eq!(description, "");
 }
 
 #[test]
 fn conformance_group_message_remark() {
     let v = load_vectors();
     let remark_bytes = h(&v.group_message.remark);
-    let parsed = decode_remark(&remark_bytes).unwrap();
-    assert!(matches!(parsed.content_type, ContentType::Group));
-    assert_eq!(parsed.nonce, nonce(&v.group_message.nonce));
+    let Remark::Group(payload) = decode_remark(&remark_bytes).unwrap() else {
+        panic!("expected Group");
+    };
+    assert_eq!(payload.nonce, nonce(&v.group_message.nonce));
 }
 
 #[test]
@@ -366,10 +377,12 @@ fn conformance_group_member_list() {
 fn conformance_group_decrypt_by_member() {
     let v = load_vectors();
     let remark_bytes = h(&v.group_message.remark);
-    let parsed = decode_remark(&remark_bytes).unwrap();
+    let Remark::Group(payload) = decode_remark(&remark_bytes).unwrap() else {
+        panic!("expected Group");
+    };
     let bob_scalar = encryption::sr25519_signing_scalar(&seed(&v.bob.seed));
     let plaintext =
-        encryption::decrypt_from_group(&parsed.content, &bob_scalar, &parsed.nonce, Some(3))
+        encryption::decrypt_from_group(&payload.content, &bob_scalar, &payload.nonce, Some(3))
             .unwrap();
     let root_plaintext = h(&v.group_message.root_plaintext);
     assert_eq!(plaintext, root_plaintext);
