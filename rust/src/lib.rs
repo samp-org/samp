@@ -11,7 +11,7 @@ pub mod wire;
 pub use encryption::{
     build_capsules, check_view_tag, compute_view_tag, decrypt, decrypt_as_sender,
     decrypt_from_group, derive_group_ephemeral, encrypt, encrypt_for_group, public_from_seed,
-    scan_capsules, sr25519_signing_scalar, unseal_recipient, GroupEncrypted, ENCRYPTED_OVERHEAD,
+    sr25519_signing_scalar, unseal_recipient, GroupEncrypted, ENCRYPTED_OVERHEAD,
 };
 pub use error::SampError;
 pub use extrinsic::{
@@ -21,9 +21,9 @@ pub use metadata::{ErrorEntry, ErrorTable, Metadata, StorageLayout};
 pub use scale::{decode_bytes, decode_compact, encode_compact};
 pub use secret::Seed;
 pub use types::{
-    BlockHash, BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext,
-    ExtIndex, ExtrinsicBytes, GenesisHash, Nonce, Plaintext, Pubkey, RemarkBytes, Signature,
-    Ss58Address, Ss58Prefix, Timestamp, ViewTag,
+    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex,
+    ExtrinsicBytes, GenesisHash, Nonce, Plaintext, Pubkey, RemarkBytes, Signature, Ss58Address,
+    Ss58Prefix, ViewTag,
 };
 pub use wire::{
     decode_channel_content, decode_channel_create, decode_group_content, decode_group_members,

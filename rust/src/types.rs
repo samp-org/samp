@@ -187,31 +187,6 @@ impl fmt::Debug for GenesisHash {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct BlockHash([u8; 32]);
-
-impl BlockHash {
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-
-    pub const fn into_bytes(self) -> [u8; 32] {
-        self.0
-    }
-}
-
-impl fmt::Debug for BlockHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("BlockHash(0x")?;
-        write_hex(f, &self.0)?;
-        f.write_str(")")
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct Nonce([u8; 12]);
 
@@ -552,23 +527,3 @@ impl fmt::Display for Ss58Address {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Timestamp(u64);
-
-impl Timestamp {
-    pub const ZERO: Self = Self(0);
-
-    pub const fn from_unix_secs(secs: u64) -> Self {
-        Self(secs)
-    }
-
-    pub const fn as_unix_secs(self) -> u64 {
-        self.0
-    }
-}
-
-impl fmt::Debug for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Timestamp({}s)", self.0)
-    }
-}

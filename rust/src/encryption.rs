@@ -1,7 +1,7 @@
 use crate::error::SampError;
 use crate::secret::Seed;
 use crate::types::{Capsules, Ciphertext, Nonce, Plaintext, Pubkey, ViewTag};
-use crate::wire::{EncryptedPayload, CAPSULE_SIZE};
+use crate::wire::{EncryptedPayload, GroupPayload, CAPSULE_SIZE};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
@@ -284,7 +284,7 @@ pub fn build_capsules(
     Capsules::from_bytes(out).expect("len is multiple of CAPSULE_SIZE by construction")
 }
 
-pub fn scan_capsules(
+pub(crate) fn scan_capsules(
     data: &[u8],
     eph_pubkey: &Pubkey,
     my_scalar: &Scalar,
@@ -343,11 +343,12 @@ pub fn encrypt_for_group(
 }
 
 pub fn decrypt_from_group(
-    content: &[u8],
+    payload: &GroupPayload,
     my_scalar: &Scalar,
-    nonce: &Nonce,
     known_member_count: Option<usize>,
 ) -> Result<Plaintext, SampError> {
+    let content = payload.content.as_slice();
+    let nonce = &payload.nonce;
     if content.len() < 32 {
         return Err(SampError::InsufficientData);
     }

@@ -215,7 +215,7 @@ fn group_root_message_roundtrip() {
     assert_eq!(payload.nonce, nonce);
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload, &bob_scalar, Some(3)).unwrap();
     let (group_ref, _reply_to, _continues, body) =
         decode_group_content(decrypted.as_bytes()).unwrap();
     assert!(group_ref.is_zero());
@@ -225,11 +225,11 @@ fn group_root_message_roundtrip() {
     assert_eq!(first_msg, b"Welcome to the group!");
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    let decrypted = decrypt_from_group(&payload.content, &eve_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload, &eve_scalar, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
 
     let alice_scalar = sr25519_signing_scalar(&alice_seed());
-    let decrypted = decrypt_from_group(&payload.content, &alice_scalar, &nonce, Some(3)).unwrap();
+    let decrypted = decrypt_from_group(&payload, &alice_scalar, Some(3)).unwrap();
     assert_eq!(decrypted, plaintext);
 }
 
@@ -257,7 +257,7 @@ fn group_message_roundtrip() {
     };
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, Some(2)).unwrap();
+    let decrypted = decrypt_from_group(&payload, &bob_scalar, Some(2)).unwrap();
     let (group_ref, reply_to, continues, body) =
         decode_group_content(decrypted.as_bytes()).unwrap();
     assert_eq!(
@@ -272,7 +272,7 @@ fn group_message_roundtrip() {
     assert_eq!(body, b"hello group");
 
     let eve_scalar = sr25519_signing_scalar(&eve_seed());
-    assert!(decrypt_from_group(&payload.content, &eve_scalar, &nonce, Some(2)).is_err());
+    assert!(decrypt_from_group(&payload, &eve_scalar, Some(2)).is_err());
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn group_trial_aead_without_known_n() {
     };
 
     let bob_scalar = sr25519_signing_scalar(&bob_seed());
-    let decrypted = decrypt_from_group(&payload.content, &bob_scalar, &nonce, None).unwrap();
+    let decrypted = decrypt_from_group(&payload, &bob_scalar, None).unwrap();
     let (group_ref, _, _, body) = decode_group_content(decrypted.as_bytes()).unwrap();
     assert_eq!(
         group_ref,

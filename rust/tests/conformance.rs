@@ -393,7 +393,7 @@ fn conformance_group_decrypt_by_member() {
     };
     let bob_scalar = encryption::sr25519_signing_scalar(&seed(&v.bob.seed));
     let plaintext =
-        encryption::decrypt_from_group(&payload.content, &bob_scalar, &payload.nonce, Some(3))
+        encryption::decrypt_from_group(&payload, &bob_scalar, Some(3))
             .unwrap();
     let root_plaintext = h(&v.group_message.root_plaintext);
     assert_eq!(plaintext.as_bytes(), root_plaintext.as_slice());

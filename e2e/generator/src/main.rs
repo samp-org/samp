@@ -354,20 +354,23 @@ fn main() {
         &group_ciphertext,
     );
 
-    let group_content = &group_remark.as_bytes()[13..];
+    let group_payload_for_decode = match decode_remark(&group_remark).unwrap() {
+        samp::Remark::Group(p) => p,
+        _ => panic!("expected Group"),
+    };
     let bob_decrypted =
-        encryption::decrypt_from_group(group_content, &bob_scalar, &group_nonce, Some(3)).unwrap();
+        encryption::decrypt_from_group(&group_payload_for_decode, &bob_scalar, Some(3)).unwrap();
     assert_eq!(bob_decrypted.as_bytes(), group_inner.as_slice());
 
     let charlie_decrypted =
-        encryption::decrypt_from_group(group_content, &charlie_scalar, &group_nonce, Some(3))
+        encryption::decrypt_from_group(&group_payload_for_decode, &charlie_scalar, Some(3))
             .unwrap();
     assert_eq!(charlie_decrypted.as_bytes(), group_inner.as_slice());
 
     let random_seed = Seed::from_bytes([0xEE; 32]);
     let random_scalar = encryption::sr25519_signing_scalar(&random_seed);
     assert!(
-        encryption::decrypt_from_group(group_content, &random_scalar, &group_nonce, Some(3))
+        encryption::decrypt_from_group(&group_payload_for_decode, &random_scalar, Some(3))
             .is_err()
     );
 
