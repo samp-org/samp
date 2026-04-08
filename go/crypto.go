@@ -12,14 +12,13 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-const EncryptedOverhead = 80 // ephemeral(32) + sealed_to(32) + auth_tag(16)
+const EncryptedOverhead = 80
 
 var (
 	ErrDecryptionFailed = errors.New("samp: decryption failed")
 	ErrInvalidPoint     = errors.New("samp: invalid ristretto255 point")
 )
 
-// Sr25519SigningScalar derives the sr25519 signing scalar from a 32-byte seed.
 func Sr25519SigningScalar(seed [32]byte) *ristretto255.Scalar {
 	h := sha512.Sum512(seed[:])
 	h[0] &= 248
@@ -93,8 +92,6 @@ func scalarFromBytes(b []byte) *ristretto255.Scalar {
 	return new(ristretto255.Scalar).FromUniformBytes(wide[:])
 }
 
-// Encrypt encrypts plaintext for a recipient.
-// Returns: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
 func Encrypt(plaintext, recipientPub []byte, nonce [12]byte, senderSeed [32]byte) ([]byte, error) {
 	ephBytes := deriveEphemeral(&senderSeed, recipientPub, &nonce)
 	ephScalar := scalarFromBytes(ephBytes)
@@ -125,7 +122,6 @@ func Encrypt(plaintext, recipientPub []byte, nonce [12]byte, senderSeed [32]byte
 	return out, nil
 }
 
-// Decrypt decrypts as the recipient using the signing scalar.
 func Decrypt(remark *Remark, signingScalar *ristretto255.Scalar) ([]byte, error) {
 	if len(remark.Content) < EncryptedOverhead {
 		return nil, ErrInsufficientData
@@ -147,7 +143,6 @@ func Decrypt(remark *Remark, signingScalar *ristretto255.Scalar) ([]byte, error)
 	return plaintext, nil
 }
 
-// DecryptAsSender decrypts using the sender's seed (via sealed_to).
 func DecryptAsSender(remark *Remark, senderSeed [32]byte) ([]byte, error) {
 	if len(remark.Content) < EncryptedOverhead {
 		return nil, ErrInsufficientData
@@ -179,7 +174,6 @@ func DecryptAsSender(remark *Remark, senderSeed [32]byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// CheckViewTag computes the recipient-side view tag (Section 5.3).
 func CheckViewTag(remark *Remark, signingScalar *ristretto255.Scalar) (byte, error) {
 	if len(remark.Content) < EncryptedOverhead {
 		return 0, ErrInsufficientData
@@ -191,7 +185,6 @@ func CheckViewTag(remark *Remark, signingScalar *ristretto255.Scalar) (byte, err
 	return deriveViewTag(sharedSecret), nil
 }
 
-// UnsealRecipient recovers the recipient pubkey from sealed_to (Section 5.5 step 3).
 func UnsealRecipient(remark *Remark, senderSeed [32]byte) ([32]byte, error) {
 	if len(remark.Content) < EncryptedOverhead {
 		return [32]byte{}, ErrInsufficientData
@@ -205,7 +198,6 @@ func UnsealRecipient(remark *Remark, senderSeed [32]byte) ([32]byte, error) {
 	return recipient, nil
 }
 
-// ComputeViewTag computes the sender-side view tag.
 func ComputeViewTag(senderSeed [32]byte, recipientPub []byte, nonce [12]byte) (byte, error) {
 	ephBytes := deriveEphemeral(&senderSeed, recipientPub, &nonce)
 	ephScalar := scalarFromBytes(ephBytes)

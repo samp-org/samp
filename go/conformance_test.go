@@ -162,8 +162,6 @@ func bytesEqual(a, b []byte) bool {
 	return true
 }
 
-// --- Keypair derivation ---
-
 func TestConformanceKeypairAlice(t *testing.T) {
 	v := loadVectors(t)
 	seed := h32(v.Alice.Seed)
@@ -182,8 +180,6 @@ func TestConformanceKeypairBob(t *testing.T) {
 	assertEqual(t, "bob_pubkey", pub, h(v.Bob.Sr25519Public))
 }
 
-// --- Public message ---
-
 func TestConformancePublicEncode(t *testing.T) {
 	v := loadVectors(t)
 	remark := EncodePublic(h32(v.Bob.Sr25519Public), h(v.PublicMessage.Body))
@@ -201,8 +197,6 @@ func TestConformancePublicDecode(t *testing.T) {
 	}
 	assertEqual(t, "body", r.Content, h(v.PublicMessage.Body))
 }
-
-// --- Encrypted message ---
 
 func TestConformanceEncryptedEncode(t *testing.T) {
 	v := loadVectors(t)
@@ -251,8 +245,6 @@ func TestConformanceRecipientDecrypt(t *testing.T) {
 	assertEqual(t, "plaintext", plaintext, h(v.EncryptedMessage.Plaintext))
 }
 
-// --- Sender self-decryption ---
-
 func TestConformanceSenderSelfDecrypt(t *testing.T) {
 	v := loadVectors(t)
 	aliceSeed := h32(v.Alice.Seed)
@@ -267,8 +259,6 @@ func TestConformanceSenderSelfDecrypt(t *testing.T) {
 	assertEqual(t, "plaintext", plaintext, h(v.SenderSelfDecrypt.Plaintext))
 	assertEqual(t, "unsealed_recipient", h(v.SenderSelfDecrypt.UnsealedRecipient), h(v.Bob.Sr25519Public))
 }
-
-// --- Thread message ---
 
 func TestConformanceThreadMessage(t *testing.T) {
 	v := loadVectors(t)
@@ -319,8 +309,6 @@ func TestConformanceThreadMessage(t *testing.T) {
 	assertEqual(t, "body", body, h(v.ThreadMessage.Body))
 }
 
-// --- Channel message ---
-
 func TestConformanceChannelMessage(t *testing.T) {
 	v := loadVectors(t)
 	ch := v.ChannelMessage
@@ -332,8 +320,6 @@ func TestConformanceChannelMessage(t *testing.T) {
 	)
 	assertEqual(t, "channel_remark", remark, h(ch.Remark))
 }
-
-// --- Channel creation ---
 
 func TestConformanceChannelCreate(t *testing.T) {
 	v := loadVectors(t)
@@ -355,8 +341,6 @@ func TestConformanceChannelCreate(t *testing.T) {
 		t.Fatalf("create decode: got %q/%q", name, desc)
 	}
 }
-
-// --- Edge cases ---
 
 func TestConformanceEdgeEmptyBodyPublic(t *testing.T) {
 	v := loadVectors(t)
@@ -395,8 +379,6 @@ func TestConformanceEdgeEmptyDescCreate(t *testing.T) {
 	}
 }
 
-// --- Negative cases ---
-
 func TestConformanceNegativeNonSampVersion(t *testing.T) {
 	v := loadVectors(t)
 	_, err := DecodeRemark(h(v.NegativeCases.NonSampVersion))
@@ -420,8 +402,6 @@ func TestConformanceNegativeTruncatedEncrypted(t *testing.T) {
 		t.Fatal("expected error for truncated encrypted")
 	}
 }
-
-// --- Group message ---
 
 func TestConformanceGroupRemark(t *testing.T) {
 	v := loadVectors(t)

@@ -17,8 +17,8 @@ const (
 	ContentTypeChannel       = 0x14
 	ContentTypeGroup         = 0x15
 
-	ChannelHeaderSize = 12 // reply_to (6) + continues (6)
-	ThreadHeaderSize  = 18 // thread (6) + reply_to (6) + continues (6)
+	ChannelHeaderSize = 12
+	ThreadHeaderSize  = 18
 
 	ChannelNameMax = 32
 	ChannelDescMax = 128
@@ -232,7 +232,6 @@ func DecodeChannelCreate(data []byte) (name, description string, err error) {
 	return name, description, nil
 }
 
-// EncodeGroup encodes a group message: 0x15 || nonce(12) || eph_pubkey(32) || capsules || ciphertext.
 func EncodeGroup(nonce [12]byte, ephPubkey [32]byte, capsules []byte, ciphertext []byte) []byte {
 	out := make([]byte, 0, 45+len(capsules)+len(ciphertext))
 	out = append(out, ContentTypeGroup)
@@ -243,7 +242,6 @@ func EncodeGroup(nonce [12]byte, ephPubkey [32]byte, capsules []byte, ciphertext
 	return out
 }
 
-// DecodeGroupContent decodes group plaintext: group_ref(6) || reply_to(6) || continues(6) || body.
 func DecodeGroupContent(content []byte) (groupRef, replyTo, continues BlockRef, body []byte, err error) {
 	if len(content) < ThreadHeaderSize {
 		return BlockRef{}, BlockRef{}, BlockRef{}, nil, ErrInsufficientData
