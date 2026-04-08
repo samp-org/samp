@@ -45,6 +45,25 @@ from samp.wire import (
     encode_thread_content,
 )
 from samp.error import SampError
+from samp.extrinsic import (
+    ChainParams,
+    ExtractedCall,
+    ExtrinsicError,
+    build_signed_extrinsic,
+    extract_call,
+    extract_signer,
+)
+from samp.metadata import (
+    ErrorEntry,
+    ErrorTable,
+    FieldNotFoundError,
+    Metadata,
+    MetadataError,
+    ScaleError,
+    StorageLayout,
+    StorageNotFoundError,
+)
+from samp.scale import decode_bytes, decode_compact, encode_compact
 
 __all__ = [
     "SAMP_VERSION",
@@ -90,4 +109,21 @@ __all__ = [
     "scan_capsules",
     "encrypt_for_group",
     "decrypt_from_group",
+    "decode_compact",
+    "encode_compact",
+    "decode_bytes",
+    "Metadata",
+    "StorageLayout",
+    "ErrorEntry",
+    "ErrorTable",
+    "MetadataError",
+    "ScaleError",
+    "StorageNotFoundError",
+    "FieldNotFoundError",
+    "ChainParams",
+    "ExtractedCall",
+    "ExtrinsicError",
+    "build_signed_extrinsic",
+    "extract_signer",
+    "extract_call",
 ]
