@@ -46,3 +46,22 @@ export {
   encryptForGroup,
   decryptFromGroup,
 } from "./crypto.js";
+export { decodeBytes, decodeCompact, encodeCompact } from "./scale.js";
+export {
+  ErrorTable,
+  FieldNotFoundError,
+  Metadata,
+  MetadataError,
+  ScaleError,
+  StorageNotFoundError,
+  StorageValueTooShortError,
+  decodeUint,
+} from "./metadata.js";
+export type { ErrorEntry, StorageLayout } from "./metadata.js";
+export {
+  ExtrinsicError,
+  buildSignedExtrinsic,
+  extractCall,
+  extractSigner,
+} from "./extrinsic.js";
+export type { ChainParams, ExtractedCall, SignFn } from "./extrinsic.js";
