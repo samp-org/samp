@@ -96,7 +96,7 @@ def test_matches_e2e_scale_vectors_fixture():
     with open(E2E / "scale-vectors.json") as f:
         vectors = json.load(f)
     for case in vectors["compact"]:
-        value = case["value"]
+        value = int(case["value"])
         expected = bytes.fromhex(case["encoded"][2:])
         assert encode_compact(value) == expected, f"encode mismatch for {value}"
         decoded = decode_compact(expected)
