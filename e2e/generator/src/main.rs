@@ -242,9 +242,9 @@ fn main() {
     assert_eq!(decrypted.as_bytes(), plaintext);
 
     // === Thread message ===
-    let thread_ref = BlockRef { block: 100, index: 0 };
-    let reply_to_ref = BlockRef { block: 101, index: 1 };
-    let continues_ref = BlockRef { block: 100, index: 0 };
+    let thread_ref = BlockRef::from_parts(100, 0);
+    let reply_to_ref = BlockRef::from_parts(101, 1);
+    let continues_ref = BlockRef::from_parts(100, 0);
     let thread_body = b"Re: subnet 7";
     let thread_plaintext =
         encode_thread_content(thread_ref, reply_to_ref, continues_ref, thread_body);
@@ -303,8 +303,8 @@ fn main() {
     let ch_body = b"Did he use MEV shield?";
     let ch_body_typed = samp::MessageBody::parse("Did he use MEV shield?").unwrap();
     let ch_remark = encode_channel_msg(
-        BlockRef { block: 100, index: 2 },
-        BlockRef { block: 99, index: 1 },
+        BlockRef::from_parts(100, 2),
+        BlockRef::from_parts(99, 1),
         BlockRef::ZERO,
         &ch_body_typed,
     );

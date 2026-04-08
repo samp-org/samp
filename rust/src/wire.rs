@@ -1,7 +1,7 @@
 use crate::error::SampError;
 use crate::types::{
-    BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, MessageBody, Nonce, Pubkey,
-    RemarkBytes, ViewTag,
+    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex,
+    MessageBody, Nonce, Pubkey, RemarkBytes, ViewTag,
 };
 
 pub const SAMP_VERSION: u8 = 0x10;
@@ -57,15 +57,18 @@ impl ContentType {
 }
 
 fn encode_block_ref(out: &mut Vec<u8>, r: &BlockRef) {
-    out.extend_from_slice(&r.block.to_le_bytes());
-    out.extend_from_slice(&r.index.to_le_bytes());
+    out.extend_from_slice(&r.block().get().to_le_bytes());
+    out.extend_from_slice(&r.index().get().to_le_bytes());
 }
 
 fn decode_block_ref(data: &[u8], offset: usize) -> BlockRef {
-    BlockRef {
-        block: u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()),
-        index: u16::from_le_bytes(data[offset + 4..offset + 6].try_into().unwrap()),
-    }
+    let block = BlockNumber::new(u32::from_le_bytes(
+        data[offset..offset + 4].try_into().unwrap(),
+    ));
+    let index = ExtIndex::new(u16::from_le_bytes(
+        data[offset + 4..offset + 6].try_into().unwrap(),
+    ));
+    BlockRef::new(block, index)
 }
 
 #[derive(Debug, Clone)]

@@ -2,7 +2,7 @@ use proptest::prelude::*;
 use samp::*;
 
 fn br(b: u32, i: u16) -> BlockRef {
-    BlockRef { block: b, index: i }
+    BlockRef::from_parts(b, i)
 }
 
 proptest! {

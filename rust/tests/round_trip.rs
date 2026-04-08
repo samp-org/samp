@@ -56,7 +56,7 @@ fn eve_pubkey() -> Pubkey {
 }
 
 fn br(b: u32, i: u16) -> BlockRef {
-    BlockRef { block: b, index: i }
+    BlockRef::from_parts(b, i)
 }
 
 fn n(b: u8) -> Nonce {

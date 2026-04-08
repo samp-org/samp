@@ -58,25 +58,40 @@ impl fmt::Debug for ExtIndex {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct BlockRef {
-    pub block: u32,
-    pub index: u16,
+    block: BlockNumber,
+    index: ExtIndex,
 }
 
 impl BlockRef {
-    pub const ZERO: Self = Self { block: 0, index: 0 };
+    pub const ZERO: Self = Self {
+        block: BlockNumber::ZERO,
+        index: ExtIndex::ZERO,
+    };
 
-    pub const fn new(block: u32, index: u16) -> Self {
+    pub const fn new(block: BlockNumber, index: ExtIndex) -> Self {
         Self { block, index }
     }
 
+    pub const fn from_parts(block: u32, index: u16) -> Self {
+        Self::new(BlockNumber::new(block), ExtIndex::new(index))
+    }
+
+    pub const fn block(self) -> BlockNumber {
+        self.block
+    }
+
+    pub const fn index(self) -> ExtIndex {
+        self.index
+    }
+
     pub const fn is_zero(self) -> bool {
-        self.block == 0 && self.index == 0
+        self.block.get() == 0 && self.index.get() == 0
     }
 }
 
 impl fmt::Debug for BlockRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{}.{}", self.block, self.index)
+        write!(f, "#{}.{}", self.block.get(), self.index.get())
     }
 }
 

@@ -42,7 +42,7 @@ fn nonce(s: &str) -> Nonce {
 }
 
 fn br(b: u32, i: u16) -> BlockRef {
-    BlockRef { block: b, index: i }
+    BlockRef::from_parts(b, i)
 }
 
 #[derive(Deserialize)]
@@ -298,9 +298,9 @@ fn conformance_thread_message() {
     };
     let decrypted = encryption::decrypt(&payload, &bob_scalar).unwrap();
     let (thread, reply_to, continues, body) = decode_thread_content(decrypted.as_bytes()).unwrap();
-    assert_eq!(thread.block, th[0]);
-    assert_eq!(reply_to.block, rt[0]);
-    assert_eq!(continues.block, ct[0]);
+    assert_eq!(thread.block().get(), th[0]);
+    assert_eq!(reply_to.block().get(), rt[0]);
+    assert_eq!(continues.block().get(), ct[0]);
     assert_eq!(body, h(&v.thread_message.body));
 }
 
