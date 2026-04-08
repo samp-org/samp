@@ -47,7 +47,6 @@ from samp.wire import (
 from samp.error import SampError
 
 __all__ = [
-    # Constants
     "SAMP_VERSION",
     "CONTENT_TYPE_PUBLIC",
     "CONTENT_TYPE_ENCRYPTED",
@@ -61,10 +60,8 @@ __all__ = [
     "CHANNEL_NAME_MAX",
     "CHANNEL_DESC_MAX",
     "ENCRYPTED_OVERHEAD",
-    # Types
     "Remark",
     "SampError",
-    # Wire encoding
     "encode_public",
     "encode_encrypted",
     "encode_channel_msg",
@@ -80,7 +77,6 @@ __all__ = [
     "encode_thread_content",
     "encode_channel_content",
     "channel_ref_from_recipient",
-    # Crypto
     "sr25519_signing_scalar",
     "public_from_seed",
     "encrypt",

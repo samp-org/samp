@@ -41,13 +41,10 @@ class Remark:
 
 
 def encode_public(recipient: bytes, body: bytes) -> bytes:
-    """Encode a public message: 0x10 || recipient(32) || body."""
     return bytes([CONTENT_TYPE_PUBLIC]) + recipient + body
 
 
 def encode_encrypted(content_type: int, view_tag: int, nonce: bytes, encrypted_content: bytes) -> bytes:
-    """Encode an encrypted remark (0x11 or 0x12):
-    content_type(1) || view_tag(1) || nonce(12) || encrypted_content."""
     return bytes([content_type, view_tag]) + nonce + encrypted_content
 
 
@@ -86,7 +83,6 @@ def encode_group(nonce: bytes, eph_pubkey: bytes, capsules: bytes, ciphertext: b
 
 
 def decode_remark(data: bytes) -> Remark:
-    """Decode a SAMP remark."""
     if len(data) == 0:
         raise SampError("insufficient data")
 
