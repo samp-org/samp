@@ -15,7 +15,7 @@ function mod(n: bigint, m: bigint): bigint {
   return ((n % m) + m) % m;
 }
 
-export const ENCRYPTED_OVERHEAD = 80; // ephemeral(32) + sealed_to(32) + auth_tag(16)
+export const ENCRYPTED_OVERHEAD = 80;
 
 function divideScalarByCofactor(s: Uint8Array): void {
   let low = 0;
@@ -85,7 +85,6 @@ function scalarToBytes32(s: bigint): Uint8Array {
   return numberToBytesLE(s, 32);
 }
 
-/** Encrypt plaintext for a single recipient. AAD = sealed_to. */
 export function encrypt(
   plaintext: Uint8Array,
   recipientPub: Uint8Array,

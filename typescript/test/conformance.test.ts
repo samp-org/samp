@@ -50,8 +50,6 @@ function scalarToBytes(s: bigint): Uint8Array {
   return buf;
 }
 
-// --- Keypair derivation ---
-
 describe("keypair", () => {
   it("alice scalar", () => {
     const scalar = sr25519SigningScalar(h(vectors.alice.seed));
@@ -74,8 +72,6 @@ describe("keypair", () => {
   });
 });
 
-// --- Public message ---
-
 describe("public message", () => {
   it("encode", () => {
     const remark = encodePublic(h(vectors.bob.sr25519_public), h(vectors.public_message.body));
@@ -88,8 +84,6 @@ describe("public message", () => {
     expect(toHex(r.content)).toBe(vectors.public_message.body.replace("0x", ""));
   });
 });
-
-// --- Encrypted message ---
 
 describe("encrypted message", () => {
   it("encode", () => {
@@ -137,8 +131,6 @@ describe("encrypted message", () => {
   });
 });
 
-// --- Sender self-decryption ---
-
 describe("sender self-decryption", () => {
   it("decrypt", () => {
     const parsed = decodeRemark(h(vectors.encrypted_message.remark));
@@ -150,8 +142,6 @@ describe("sender self-decryption", () => {
     expect(vectors.sender_self_decryption.unsealed_recipient).toBe(vectors.bob.sr25519_public);
   });
 });
-
-// --- Thread message ---
 
 describe("thread message", () => {
   it("encode + encrypt + decrypt", () => {
@@ -185,8 +175,6 @@ describe("thread message", () => {
   });
 });
 
-// --- Channel message ---
-
 describe("channel message", () => {
   it("encode", () => {
     const ch = vectors.channel_message;
@@ -205,8 +193,6 @@ describe("channel message", () => {
   });
 });
 
-// --- Channel creation ---
-
 describe("channel create", () => {
   it("encode", () => {
     const remark = encodeChannelCreate(vectors.channel_create.name, vectors.channel_create.description);
@@ -220,8 +206,6 @@ describe("channel create", () => {
     expect(description).toBe(vectors.channel_create.description);
   });
 });
-
-// --- Group message ---
 
 describe("group message", () => {
   it("remark decode", () => {
@@ -271,8 +255,6 @@ describe("group message", () => {
   });
 });
 
-// --- Edge cases ---
-
 describe("edge cases", () => {
   it("empty body public", () => {
     const r = decodeRemark(h(vectors.edge_cases.empty_body_public));
@@ -293,8 +275,6 @@ describe("edge cases", () => {
   });
 });
 
-// --- Negative cases ---
-
 describe("negative cases", () => {
   it("non-SAMP version", () => {
     expect(() => decodeRemark(h(vectors.negative_cases.non_samp_version))).toThrow();
@@ -309,8 +289,6 @@ describe("negative cases", () => {
   });
 });
 
-// --- Channel create validation ---
-
 describe("channel create validation", () => {
   it("encode_channel_create_name_too_long_throws", () => {
     expect(() => encodeChannelCreate("x".repeat(33), "desc")).toThrow(SampError);
@@ -324,8 +302,6 @@ describe("channel create validation", () => {
     expect(() => encodeChannelCreate("valid", "x".repeat(129))).toThrow(SampError);
   });
 });
-
-// --- Group encrypt/decrypt ---
 
 describe("group encrypt/decrypt", () => {
   const aliceSeed = new Uint8Array(32).fill(0xaa);
