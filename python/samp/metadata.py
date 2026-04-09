@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from typing import Optional, Union
 
 from samp.scale import decode_compact
 
@@ -73,7 +74,7 @@ class _Reader:
         length = self.read_compact()
         return self.read(length).decode("utf-8")
 
-    def read_option_string(self) -> str | None:
+    def read_option_string(self) -> Optional[str]:
         tag = self.read_u8()
         if tag == 0:
             return None
@@ -127,6 +128,8 @@ class _Variable:
 
 _VARIABLE = _Variable()
 
+_TypeShape = Union[_Primitive, _Composite, _Array, _Tuple, _Variant, _Variable]
+
 
 @dataclass(frozen=True)
 class StorageLayout:
@@ -153,7 +156,7 @@ class ErrorEntry:
 class ErrorTable:
     by_idx: dict[tuple[int, int], ErrorEntry] = field(default_factory=dict)
 
-    def humanize(self, pallet_idx: int, err_idx: int) -> str | None:
+    def humanize(self, pallet_idx: int, err_idx: int) -> Optional[str]:
         entry = self.by_idx.get((pallet_idx, err_idx))
         if entry is None:
             return None
@@ -183,7 +186,7 @@ class ErrorTable:
             return translated
         return raw
 
-    def _maybe_translate_module(self, s: str) -> str | None:
+    def _maybe_translate_module(self, s: str) -> Optional[str]:
         start = s.find("Module")
         if start < 0:
             return None
@@ -197,7 +200,7 @@ class ErrorTable:
         return self.humanize(idx, err)
 
 
-def _find_after_any(s: str, needles: list[str]) -> str | None:
+def _find_after_any(s: str, needles: list[str]) -> Optional[str]:
     for n in needles:
         i = s.find(n)
         if i >= 0:
@@ -205,7 +208,7 @@ def _find_after_any(s: str, needles: list[str]) -> str | None:
     return None
 
 
-def _trim_to_json(s: str) -> str | None:
+def _trim_to_json(s: str) -> Optional[str]:
     start = s.find("{")
     if start < 0:
         return None
@@ -238,7 +241,7 @@ _DIGITS_AFTER = re.compile(r"\s*(\d+)")
 _DIGITS_BRACKET = re.compile(r"\[(\d+)")
 
 
-def _parse_after(haystack: str, needle: str) -> int | None:
+def _parse_after(haystack: str, needle: str) -> Optional[int]:
     i = haystack.find(needle)
     if i < 0:
         return None
@@ -249,7 +252,7 @@ def _parse_after(haystack: str, needle: str) -> int | None:
     return int(m.group(1))
 
 
-def _parse_first_byte_after(haystack: str, needle: str) -> int | None:
+def _parse_first_byte_after(haystack: str, needle: str) -> Optional[int]:
     i = haystack.find(needle)
     if i < 0:
         return None
@@ -262,9 +265,9 @@ def _parse_first_byte_after(haystack: str, needle: str) -> int | None:
 
 @dataclass(frozen=True)
 class Metadata:
-    registry: tuple
-    storage: dict
-    calls: dict
+    registry: tuple[_TypeShape, ...]
+    storage: dict[tuple[str, str], int]
+    calls: dict[tuple[str, str], tuple[int, int]]
     errors: ErrorTable
 
     @classmethod
@@ -304,7 +307,7 @@ class Metadata:
             shape = _type_at(self.registry, current)
             if not isinstance(shape, _Composite):
                 raise ShapeError(f"path traversal is not a composite at {field_name}")
-            found = None
+            found: Optional[int] = None
             for name, ty in shape.fields:
                 if name == field_name:
                     found = ty
@@ -318,17 +321,17 @@ class Metadata:
             raise ShapeError("storage_layout target is not an unsigned integer primitive")
         return StorageLayout(offset=offset, width=shape.width)
 
-    def find_call_index(self, pallet: str, call: str) -> tuple[int, int] | None:
+    def find_call_index(self, pallet: str, call: str) -> Optional[tuple[int, int]]:
         return self.calls.get((pallet, call))
 
 
-def _type_at(registry, type_id: int):
+def _type_at(registry: tuple[_TypeShape, ...], type_id: int) -> _TypeShape:
     if type_id < 0 or type_id >= len(registry):
         raise TypeIdMissingError(f"type id {type_id} missing from registry")
     return registry[type_id]
 
 
-def _byte_size(registry, type_id: int) -> int:
+def _byte_size(registry: tuple[_TypeShape, ...], type_id: int) -> int:
     shape = _type_at(registry, type_id)
     if isinstance(shape, _Primitive):
         return shape.width
@@ -341,9 +344,9 @@ def _byte_size(registry, type_id: int) -> int:
     raise VariableWidthError(f"type id {type_id} has variable width")
 
 
-def _read_registry(reader: _Reader) -> list:
+def _read_registry(reader: _Reader) -> tuple[_TypeShape, ...]:
     n = reader.read_compact()
-    out = []
+    out: list[_TypeShape] = []
     for expected in range(n):
         type_id = reader.read_compact()
         if type_id != expected:
@@ -352,16 +355,16 @@ def _read_registry(reader: _Reader) -> list:
         _skip_type_params(reader)
         out.append(_read_type_def(reader))
         reader.skip_strings()
-    return out
+    return tuple(out)
 
 
-def _read_type_def(reader: _Reader):
+def _read_type_def(reader: _Reader) -> _TypeShape:
     tag = reader.read_u8()
     if tag == 0:
         return _Composite(fields=tuple(_read_fields(reader)))
     if tag == 1:
         n = reader.read_compact()
-        entries = []
+        entries: list[tuple[int, str, str]] = []
         for _ in range(n):
             name = reader.read_string()
             _read_fields(reader)
@@ -395,7 +398,7 @@ def _read_type_def(reader: _Reader):
 
 def _read_fields(reader: _Reader) -> list[tuple[str, int]]:
     n = reader.read_compact()
-    out = []
+    out: list[tuple[str, int]] = []
     for _ in range(n):
         name = reader.read_option_string() or ""
         ty = reader.read_compact()
@@ -418,8 +421,8 @@ def _skip_type_params(reader: _Reader) -> None:
         raise ScaleError(f"invalid Option tag {tag}")
 
 
-def _primitive_shape(tag: int):
-    table = {
+def _primitive_shape(tag: int) -> _TypeShape:
+    table: dict[int, tuple[int, bool]] = {
         0: (1, False),
         1: (4, False),
         3: (1, True),
@@ -443,7 +446,13 @@ def _primitive_shape(tag: int):
     return _Primitive(width=width, unsigned_int=unsigned_int)
 
 
-def _walk_pallets(reader: _Reader):
+def _walk_pallets(
+    reader: _Reader,
+) -> tuple[
+    dict[tuple[str, str], int],
+    list[tuple[str, int, int]],
+    list[tuple[str, int, int]],
+]:
     storage: dict[tuple[str, str], int] = {}
     pending_calls: list[tuple[str, int, int]] = []
     pending_errors: list[tuple[str, int, int]] = []
@@ -511,7 +520,9 @@ def _skip_optional_compact(reader: _Reader) -> None:
         reader.read_compact()
 
 
-def _build_error_table(registry, pending: list[tuple[str, int, int]]) -> ErrorTable:
+def _build_error_table(
+    registry: tuple[_TypeShape, ...], pending: list[tuple[str, int, int]]
+) -> ErrorTable:
     table = ErrorTable()
     for pallet_name, pallet_idx, error_ty in pending:
         if error_ty < 0 or error_ty >= len(registry):
@@ -529,7 +540,7 @@ def _build_error_table(registry, pending: list[tuple[str, int, int]]) -> ErrorTa
 
 
 def _resolve_call_indices(
-    registry, pending: list[tuple[str, int, int]]
+    registry: tuple[_TypeShape, ...], pending: list[tuple[str, int, int]]
 ) -> dict[tuple[str, str], tuple[int, int]]:
     out: dict[tuple[str, str], tuple[int, int]] = {}
     for pallet_name, pallet_idx, calls_ty in pending:

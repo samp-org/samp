@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Optional
 
-def decode_compact(data: bytes) -> tuple[int, int] | None:
+
+def decode_compact(data: bytes) -> Optional[tuple[int, int]]:
     if not data:
         return None
     mode = data[0] & 0b11
@@ -40,7 +42,7 @@ def encode_compact(value: int) -> bytes:
     return prefix + raw
 
 
-def decode_bytes(data: bytes) -> tuple[bytes, int] | None:
+def decode_bytes(data: bytes) -> Optional[tuple[bytes, int]]:
     decoded = decode_compact(data)
     if decoded is None:
         return None

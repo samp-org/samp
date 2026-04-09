@@ -2,9 +2,27 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Optional
 
 from samp.scale import decode_compact, encode_compact
+from samp.types import (
+    CallArgs,
+    CallIdx,
+    ExtrinsicBytes,
+    ExtrinsicNonce,
+    GenesisHash,
+    PalletIdx,
+    Pubkey,
+    Signature,
+    SpecVersion,
+    TxVersion,
+    call_args_from_bytes,
+    call_idx_from_int,
+    extrinsic_bytes_from_bytes,
+    pallet_idx_from_int,
+    pubkey_from_bytes,
+    signature_from_bytes,
+)
 
 EXT_VERSION_SIGNED = 0x84
 ADDR_TYPE_ID = 0x00
@@ -22,45 +40,38 @@ class ExtrinsicError(Exception):
 
 @dataclass(frozen=True)
 class ChainParams:
-    genesis_hash: bytes
-    spec_version: int
-    tx_version: int
+    genesis_hash: GenesisHash
+    spec_version: SpecVersion
+    tx_version: TxVersion
 
 
 @dataclass(frozen=True)
 class ExtractedCall:
-    pallet: int
-    call: int
-    args: bytes
+    pallet: PalletIdx
+    call: CallIdx
+    args: CallArgs
 
 
 def build_signed_extrinsic(
-    pallet_idx: int,
-    call_idx: int,
-    call_args: bytes,
-    public_key: bytes,
+    pallet_idx: PalletIdx,
+    call_idx: CallIdx,
+    call_args: CallArgs,
+    public_key: Pubkey,
     sign: Callable[[bytes], bytes],
-    nonce: int,
+    nonce: ExtrinsicNonce,
     chain_params: ChainParams,
-) -> bytes:
-    if len(public_key) != 32:
-        raise ExtrinsicError(f"public_key must be 32 bytes, got {len(public_key)}")
-    if len(chain_params.genesis_hash) != 32:
-        raise ExtrinsicError(
-            f"genesis_hash must be 32 bytes, got {len(chain_params.genesis_hash)}"
-        )
-
-    call_data = bytes([pallet_idx, call_idx]) + call_args
+) -> ExtrinsicBytes:
+    call_data = bytes([int(pallet_idx), int(call_idx)]) + call_args
     tip = bytes([0])
 
     signing_payload = (
         call_data
         + bytes([ERA_IMMORTAL])
-        + encode_compact(nonce)
+        + encode_compact(int(nonce))
         + tip
         + bytes([METADATA_HASH_DISABLED])
-        + chain_params.spec_version.to_bytes(4, "little")
-        + chain_params.tx_version.to_bytes(4, "little")
+        + int(chain_params.spec_version).to_bytes(4, "little")
+        + int(chain_params.tx_version).to_bytes(4, "little")
         + chain_params.genesis_hash
         + chain_params.genesis_hash
         + bytes([0x00])
@@ -71,9 +82,7 @@ def build_signed_extrinsic(
     else:
         to_sign = signing_payload
 
-    signature = sign(to_sign)
-    if len(signature) != 64:
-        raise ExtrinsicError(f"signature must be 64 bytes, got {len(signature)}")
+    signature = signature_from_bytes(sign(to_sign))
 
     extrinsic_payload = (
         bytes([EXT_VERSION_SIGNED, ADDR_TYPE_ID])
@@ -81,16 +90,16 @@ def build_signed_extrinsic(
         + bytes([SIG_TYPE_SR25519])
         + signature
         + bytes([ERA_IMMORTAL])
-        + encode_compact(nonce)
+        + encode_compact(int(nonce))
         + tip
         + bytes([METADATA_HASH_DISABLED])
         + call_data
     )
 
-    return encode_compact(len(extrinsic_payload)) + extrinsic_payload
+    return extrinsic_bytes_from_bytes(encode_compact(len(extrinsic_payload)) + extrinsic_payload)
 
 
-def extract_signer(extrinsic_bytes: bytes) -> bytes | None:
+def extract_signer(extrinsic_bytes: ExtrinsicBytes) -> Optional[Pubkey]:
     decoded = decode_compact(extrinsic_bytes)
     if decoded is None:
         return None
@@ -102,10 +111,10 @@ def extract_signer(extrinsic_bytes: bytes) -> bytes | None:
         or payload[1] != ADDR_TYPE_ID
     ):
         return None
-    return payload[2:34]
+    return pubkey_from_bytes(payload[2:34])
 
 
-def extract_call(extrinsic_bytes: bytes) -> ExtractedCall | None:
+def extract_call(extrinsic_bytes: ExtrinsicBytes) -> Optional[ExtractedCall]:
     decoded = decode_compact(extrinsic_bytes)
     if decoded is None:
         return None
@@ -144,4 +153,8 @@ def extract_call(extrinsic_bytes: bytes) -> ExtractedCall | None:
     if offset > len(payload):
         return None
 
-    return ExtractedCall(pallet=pallet, call=call, args=payload[offset:])
+    return ExtractedCall(
+        pallet=pallet_idx_from_int(pallet),
+        call=call_idx_from_int(call),
+        args=call_args_from_bytes(payload[offset:]),
+    )
