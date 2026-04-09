@@ -278,3 +278,29 @@ def test_negative_truncated_encrypted() -> None:
     v = load_vectors()
     with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["truncated_encrypted"]))
+
+
+def test_content_type_byte_values_pinned() -> None:
+    assert ContentType.PUBLIC == 0x10
+    assert ContentType.ENCRYPTED == 0x11
+    assert ContentType.THREAD == 0x12
+    assert ContentType.CHANNEL_CREATE == 0x13
+    assert ContentType.CHANNEL == 0x14
+    assert ContentType.GROUP == 0x15
+
+
+def test_typed_wrappers_round_trip() -> None:
+    v = load_vectors()
+    bob_raw = h(v["bob"]["sr25519_public"])
+    assert bytes(pubkey_from_bytes(bob_raw)) == bob_raw
+    nonce_raw = h(v["encrypted_message"]["nonce"])
+    assert bytes(nonce_from_bytes(nonce_raw)) == nonce_raw
+
+
+def test_block_ref_str_format() -> None:
+    assert str(BlockRef.from_parts(42, 7)) == "#42.7"
+
+
+def test_pubkey_from_bytes_rejects_wrong_length() -> None:
+    with pytest.raises(SampError):
+        pubkey_from_bytes(b"\x00" * 31)
