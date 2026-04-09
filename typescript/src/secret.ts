@@ -18,26 +18,36 @@ export class Seed {
   }
 }
 
-type Brand<T, B> = T & { readonly __brand: B };
+export class ViewScalar {
+  private constructor(private readonly bytes: Uint8Array) {}
 
-export type ViewScalar = Brand<Uint8Array, "ViewScalar">;
-export const ViewScalar = {
-  fromBytes(b: Uint8Array): ViewScalar {
+  static fromBytes(b: Uint8Array): ViewScalar {
     if (b.length !== 32) throw new SampError(`view_scalar must be 32 bytes, got ${b.length}`);
-    return b as ViewScalar;
-  },
-  exposeSecret(v: ViewScalar): Uint8Array {
-    return v;
-  },
-} as const;
+    return new ViewScalar(b);
+  }
 
-export type ContentKey = Brand<Uint8Array, "ContentKey">;
-export const ContentKey = {
-  fromBytes(b: Uint8Array): ContentKey {
+  static exposeSecret(v: ViewScalar): Uint8Array {
+    return v.bytes;
+  }
+
+  toString(): string {
+    return "ViewScalar([REDACTED])";
+  }
+}
+
+export class ContentKey {
+  private constructor(private readonly bytes: Uint8Array) {}
+
+  static fromBytes(b: Uint8Array): ContentKey {
     if (b.length !== 32) throw new SampError(`content_key must be 32 bytes, got ${b.length}`);
-    return b as ContentKey;
-  },
-  exposeSecret(c: ContentKey): Uint8Array {
-    return c;
-  },
-} as const;
+    return new ContentKey(b);
+  }
+
+  static exposeSecret(c: ContentKey): Uint8Array {
+    return c.bytes;
+  }
+
+  toString(): string {
+    return "ContentKey([REDACTED])";
+  }
+}
