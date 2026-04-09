@@ -6,8 +6,6 @@ export const CHANNEL_DESC_MAX = 128;
 
 type Brand<T, B> = T & { readonly __brand: B };
 
-// 32-byte opaques
-
 export type Pubkey = Brand<Uint8Array, "Pubkey">;
 export const Pubkey = {
   fromBytes(b: Uint8Array): Pubkey {
@@ -35,8 +33,6 @@ export const GenesisHash = {
   },
 } as const;
 
-// 64-byte opaque
-
 export type Signature = Brand<Uint8Array, "Signature">;
 export const Signature = {
   fromBytes(b: Uint8Array): Signature {
@@ -44,8 +40,6 @@ export const Signature = {
     return b as Signature;
   },
 } as const;
-
-// 12-byte opaque (ChaCha20 IV)
 
 export type Nonce = Brand<Uint8Array, "Nonce">;
 export const Nonce = {
@@ -61,8 +55,6 @@ export const Nonce = {
     return n;
   },
 } as const;
-
-// variable-length opaques
 
 export type Plaintext = Brand<Uint8Array, "Plaintext">;
 export const Plaintext = {
@@ -129,8 +121,6 @@ export const CallArgs = {
     return c;
   },
 } as const;
-
-// Branded numerics
 
 export type BlockNumber = Brand<number, "BlockNumber">;
 export const BlockNumber = {
@@ -258,8 +248,6 @@ export const Ss58Prefix = {
   },
 } as const;
 
-// BlockRef
-
 export class BlockRef {
   private constructor(
     readonly block: BlockNumber,
@@ -286,8 +274,6 @@ export class BlockRef {
     return `#${this.block as number}.${this.index as number}`;
   }
 }
-
-// Validated strings
 
 export class ChannelName {
   private constructor(private readonly s: string) {}
@@ -328,8 +314,6 @@ export class ChannelDescription {
     return new TextEncoder().encode(this.s).length;
   }
 }
-
-// Ss58Address (runtime state — class)
 
 export class Ss58Address {
   private constructor(
