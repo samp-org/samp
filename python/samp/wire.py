@@ -133,7 +133,7 @@ class ChannelRemark:
     channel_ref: BlockRef
     reply_to: BlockRef
     continues: BlockRef
-    body: bytes
+    body: str
 
 
 @dataclass(frozen=True)
@@ -200,14 +200,14 @@ def encode_channel_msg(
     channel_ref: BlockRef,
     reply_to: BlockRef,
     continues: BlockRef,
-    body: bytes,
+    body: str,
 ) -> RemarkBytes:
     return remark_bytes_from_bytes(
         bytes([ContentType.CHANNEL])
         + _encode_ref(channel_ref)
         + _encode_ref(reply_to)
         + _encode_ref(continues)
-        + body
+        + body.encode("utf-8")
     )
 
 
@@ -260,11 +260,15 @@ def decode_remark(data: bytes) -> Remark:
     if lower == 0x04:
         if len(data) < 19:
             raise SampError("insufficient data for channel message")
+        try:
+            body = data[19:].decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise SampError("invalid utf-8") from e
         return ChannelRemark(
             channel_ref=_decode_ref(data, 1),
             reply_to=_decode_ref(data, 7),
             continues=_decode_ref(data, 13),
-            body=bytes(data[19:]),
+            body=body,
         )
 
     if lower == 0x05:

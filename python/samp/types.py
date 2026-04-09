@@ -21,7 +21,6 @@ Capsules = NewType("Capsules", bytes)
 RemarkBytes = NewType("RemarkBytes", bytes)
 ExtrinsicBytes = NewType("ExtrinsicBytes", bytes)
 CallArgs = NewType("CallArgs", bytes)
-ViewScalar = NewType("ViewScalar", bytes)
 
 BlockNumber = NewType("BlockNumber", int)
 ExtIndex = NewType("ExtIndex", int)
@@ -96,12 +95,6 @@ def extrinsic_bytes_from_bytes(b: bytes) -> ExtrinsicBytes:
 
 def call_args_from_bytes(b: bytes) -> CallArgs:
     return CallArgs(bytes(b))
-
-
-def view_scalar_from_bytes(b: bytes) -> ViewScalar:
-    if len(b) != 32:
-        raise SampError(f"view_scalar must be 32 bytes, got {len(b)}")
-    return ViewScalar(bytes(b))
 
 
 def block_number_from_int(n: int) -> BlockNumber:

@@ -34,7 +34,7 @@ from samp.metadata import (
     StorageNotFoundError,
 )
 from samp.scale import decode_bytes, decode_compact, encode_compact
-from samp.secret import Seed
+from samp.secret import ContentKey, Seed, ViewScalar
 from samp.ss58 import decode as ss58_decode
 from samp.ss58 import encode as ss58_encode
 from samp.types import (
@@ -67,7 +67,6 @@ from samp.types import (
     Ss58Address,
     Ss58Prefix,
     TxVersion,
-    ViewScalar,
     ViewTag,
     block_number_from_int,
     call_args_from_bytes,
@@ -90,7 +89,6 @@ from samp.types import (
     spec_version_from_int,
     ss58_prefix_from_int,
     tx_version_from_int,
-    view_scalar_from_bytes,
     view_tag_from_int,
 )
 from samp.wire import (
@@ -189,6 +187,8 @@ __all__ = [
     "extract_signer",
     "extract_call",
     "Seed",
+    "ViewScalar",
+    "ContentKey",
     "ss58_encode",
     "ss58_decode",
     "BlockNumber",
@@ -214,7 +214,6 @@ __all__ = [
     "Ss58Address",
     "Ss58Prefix",
     "TxVersion",
-    "ViewScalar",
     "ViewTag",
     "SS58_PREFIX_KUSAMA",
     "SS58_PREFIX_POLKADOT",
@@ -240,6 +239,5 @@ __all__ = [
     "spec_version_from_int",
     "ss58_prefix_from_int",
     "tx_version_from_int",
-    "view_scalar_from_bytes",
     "view_tag_from_int",
 ]

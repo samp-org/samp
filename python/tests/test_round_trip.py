@@ -141,10 +141,10 @@ def test_channel_message_roundtrip() -> None:
     ch_ref = _br(100, 2)
     reply_to = _br(99, 1)
     continues = _br(98, 0)
-    body = b"Did he use MEV shield?"
+    body = "Did he use MEV shield?"
     remark = encode_channel_msg(ch_ref, reply_to, continues, body)
     assert remark[0] == ContentType.CHANNEL
-    assert len(remark) == 19 + len(body)
+    assert len(remark) == 19 + len(body.encode("utf-8"))
     parsed = decode_remark(remark)
     assert isinstance(parsed, ChannelRemark)
     assert parsed.channel_ref == ch_ref

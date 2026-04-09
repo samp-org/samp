@@ -5,7 +5,7 @@ from typing import Optional
 import samp_crypto
 
 from samp.error import SampError
-from samp.secret import Seed
+from samp.secret import ContentKey, Seed, ViewScalar
 from samp.types import (
     Capsules,
     Ciphertext,
@@ -13,14 +13,12 @@ from samp.types import (
     Nonce,
     Plaintext,
     Pubkey,
-    ViewScalar,
     ViewTag,
     capsules_from_bytes,
     ciphertext_from_bytes,
     eph_pubkey_from_bytes,
     plaintext_from_bytes,
     pubkey_from_bytes,
-    view_scalar_from_bytes,
     view_tag_from_int,
 )
 
@@ -28,7 +26,7 @@ ENCRYPTED_OVERHEAD = 80
 
 
 def sr25519_signing_scalar(seed: Seed) -> ViewScalar:
-    return view_scalar_from_bytes(samp_crypto.sr25519_signing_scalar(seed.expose_secret()))
+    return ViewScalar.from_bytes(samp_crypto.sr25519_signing_scalar(seed.expose_secret()))
 
 
 def public_from_seed(seed: Seed) -> Pubkey:
@@ -52,7 +50,7 @@ def decrypt(
     signing_scalar: ViewScalar,
 ) -> Plaintext:
     return plaintext_from_bytes(
-        samp_crypto.decrypt_content(ciphertext, signing_scalar, nonce)
+        samp_crypto.decrypt_content(ciphertext, signing_scalar.expose_secret(), nonce)
     )
 
 
@@ -73,7 +71,7 @@ def compute_view_tag(sender_seed: Seed, recipient: Pubkey, nonce: Nonce) -> View
 
 
 def check_view_tag(ciphertext: Ciphertext, signing_scalar: ViewScalar) -> ViewTag:
-    return view_tag_from_int(samp_crypto.check_view_tag(signing_scalar, ciphertext))
+    return view_tag_from_int(samp_crypto.check_view_tag(signing_scalar.expose_secret(), ciphertext))
 
 
 def unseal_recipient(ciphertext: Ciphertext, nonce: Nonce, sender_seed: Seed) -> Pubkey:
@@ -88,13 +86,15 @@ def derive_group_ephemeral(sender_seed: Seed, nonce: Nonce) -> bytes:
 
 
 def build_capsules(
-    content_key: bytes,
+    content_key: ContentKey,
     member_pubkeys: list[Pubkey],
     eph_scalar: bytes,
     nonce: Nonce,
 ) -> Capsules:
     return capsules_from_bytes(
-        samp_crypto.build_capsules(content_key, list(member_pubkeys), eph_scalar, nonce)
+        samp_crypto.build_capsules(
+            content_key.expose_secret(), list(member_pubkeys), eph_scalar, nonce
+        )
     )
 
 
@@ -103,12 +103,12 @@ def scan_capsules(
     eph_pubkey: EphPubkey,
     my_scalar: ViewScalar,
     nonce: Nonce,
-) -> Optional[tuple[int, bytes]]:
-    result = samp_crypto.scan_capsules(data, eph_pubkey, my_scalar, nonce)
+) -> Optional[tuple[int, ContentKey]]:
+    result = samp_crypto.scan_capsules(data, eph_pubkey, my_scalar.expose_secret(), nonce)
     if result is None:
         return None
     idx, ck = result
-    return int(idx), bytes(ck)
+    return int(idx), ContentKey.from_bytes(bytes(ck))
 
 
 def encrypt_for_group(
@@ -135,7 +135,7 @@ def decrypt_from_group(
 ) -> Plaintext:
     try:
         return plaintext_from_bytes(
-            samp_crypto.decrypt_from_group(content, my_scalar, nonce, known_n)
+            samp_crypto.decrypt_from_group(content, my_scalar.expose_secret(), nonce, known_n)
         )
     except SampError:
         raise

@@ -64,7 +64,7 @@ def test_keypair_alice() -> None:
     pub = samp_crypto.public_from_seed(seed.expose_secret())
     assert pub == h(v["alice"]["sr25519_public"])
     scalar = sr25519_signing_scalar(seed)
-    assert scalar == h(v["alice"]["signing_scalar"])
+    assert scalar.expose_secret() == h(v["alice"]["signing_scalar"])
 
 
 def test_keypair_bob() -> None:
@@ -76,7 +76,7 @@ def test_keypair_bob() -> None:
     pub = samp_crypto.public_from_seed(seed.expose_secret())
     assert pub == h(v["bob"]["sr25519_public"])
     scalar = sr25519_signing_scalar(seed)
-    assert scalar == h(v["bob"]["signing_scalar"])
+    assert scalar.expose_secret() == h(v["bob"]["signing_scalar"])
 
 
 def test_public_message_encoding() -> None:
@@ -184,7 +184,7 @@ def test_channel_message_encoding() -> None:
         _br(ch["channel_ref"]),
         _br(ch["reply_to"]),
         _br(ch["continues"]),
-        h(ch["body"]),
+        h(ch["body"]).decode("utf-8"),
     )
     assert remark == h(ch["remark"])
 
