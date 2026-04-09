@@ -1,0 +1,13 @@
+{
+    "include": ["python/samp", "python/tests"],
+    "extraPaths": ["python"],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/target",
+        "python/samp-crypto/target",
+        "references",
+        "e2e"
+    ],
+    "reportMissingTypeStubs": "none"
+}

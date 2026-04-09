@@ -36,7 +36,6 @@ from samp import (
 from samp.encryption import compute_view_tag, decrypt_as_sender
 from samp.wire import (
     decode_channel_content,
-    decode_channel_create,
     decode_group_content,
     decode_group_members,
     decode_thread_content,

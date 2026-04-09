@@ -13,7 +13,6 @@ from samp.types import (
     GenesisHash,
     PalletIdx,
     Pubkey,
-    Signature,
     SpecVersion,
     TxVersion,
     call_args_from_bytes,
