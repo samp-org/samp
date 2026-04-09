@@ -30,3 +30,9 @@ disallow_untyped_defs = true
 [[tool.mypy.overrides]]
 module = "samp_crypto"
 ignore_missing_imports = true
+
+[tool.pyright]
+include = ["samp", "tests"]
+venvPath = ".."
+venv = ".venv"
+reportMissingTypeStubs = "none"
