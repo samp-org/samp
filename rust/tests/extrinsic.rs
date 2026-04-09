@@ -1,6 +1,9 @@
 use samp::extrinsic::{build_signed_extrinsic, extract_call, extract_signer, ChainParams};
 use samp::scale::encode_compact;
-use samp::{ExtrinsicBytes, GenesisHash, Pubkey, Signature};
+use samp::{
+    CallArgs, CallIdx, ExtrinsicBytes, ExtrinsicNonce, GenesisHash, PalletIdx, Pubkey, Signature,
+    SpecVersion, TxVersion,
+};
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
 use serde::Deserialize;
@@ -54,22 +57,22 @@ fn substrate_sign(kp: &schnorrkel::Keypair, msg: &[u8]) -> Signature {
 }
 
 fn test_chain_params() -> ChainParams {
-    ChainParams {
-        genesis_hash: GenesisHash::from_bytes([0x11; 32]),
-        spec_version: 100,
-        tx_version: 1,
-    }
+    ChainParams::new(
+        GenesisHash::from_bytes([0x11; 32]),
+        SpecVersion::new(100),
+        TxVersion::new(1),
+    )
 }
 
 fn alice_pubkey(kp: &schnorrkel::Keypair) -> Pubkey {
     Pubkey::from_bytes(kp.public.to_bytes())
 }
 
-fn build_remark_args(remark: &[u8]) -> Vec<u8> {
+fn build_remark_args(remark: &[u8]) -> CallArgs {
     let mut args = Vec::new();
     encode_compact(remark.len() as u64, &mut args);
     args.extend_from_slice(remark);
-    args
+    CallArgs::from_bytes(args)
 }
 
 #[test]
@@ -80,12 +83,12 @@ fn build_signed_extrinsic_round_trips_through_extract() {
     let args = build_remark_args(remark);
 
     let ext = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| substrate_sign(&kp, msg),
-        0,
+        ExtrinsicNonce::new(0),
         &test_chain_params(),
     )
     .unwrap();
@@ -94,9 +97,9 @@ fn build_signed_extrinsic_round_trips_through_extract() {
     assert_eq!(signer.as_bytes(), public_key.as_bytes());
 
     let extracted = extract_call(&ext).expect("call should extract");
-    assert_eq!(extracted.pallet, 0);
-    assert_eq!(extracted.call, 7);
-    assert_eq!(extracted.args, args.as_slice());
+    assert_eq!(extracted.pallet().get(), 0);
+    assert_eq!(extracted.call().get(), 7);
+    assert_eq!(extracted.args().as_bytes(), args.as_bytes());
 }
 
 #[test]
@@ -106,12 +109,12 @@ fn build_signed_extrinsic_starts_with_compact_length_prefix() {
     let args = build_remark_args(b"x");
 
     let ext = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| substrate_sign(&kp, msg),
-        0,
+        ExtrinsicNonce::new(0),
         &test_chain_params(),
     )
     .unwrap();
@@ -131,12 +134,12 @@ fn build_signed_extrinsic_uses_immortal_era_byte() {
     let args = build_remark_args(b"x");
 
     let ext = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| substrate_sign(&kp, msg),
-        0,
+        ExtrinsicNonce::new(0),
         &test_chain_params(),
     )
     .unwrap();
@@ -155,27 +158,27 @@ fn build_signed_extrinsic_different_nonces_produce_different_bytes() {
     let cp = test_chain_params();
 
     let a = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| substrate_sign(&kp, msg),
-        0,
+        ExtrinsicNonce::new(0),
         &cp,
     )
     .unwrap();
     let b = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| substrate_sign(&kp, msg),
-        1,
+        ExtrinsicNonce::new(1),
         &cp,
     )
     .unwrap();
 
-    assert_ne!(a, b);
+    assert_ne!(a.as_bytes(), b.as_bytes());
 }
 
 #[test]
@@ -202,20 +205,20 @@ fn matches_e2e_extrinsic_vectors_fixture() {
     for case in vectors.cases {
         let public_key = Pubkey::from_bytes(unhex_array(&case.public_key));
         let signature = Signature::from_bytes(unhex_array(&case.fixed_signature));
-        let call_args = unhex(&case.call_args);
-        let chain = ChainParams {
-            genesis_hash: GenesisHash::from_bytes(unhex_array(&case.chain_params.genesis_hash)),
-            spec_version: case.chain_params.spec_version,
-            tx_version: case.chain_params.tx_version,
-        };
+        let call_args = CallArgs::from_bytes(unhex(&case.call_args));
+        let chain = ChainParams::new(
+            GenesisHash::from_bytes(unhex_array(&case.chain_params.genesis_hash)),
+            SpecVersion::new(case.chain_params.spec_version),
+            TxVersion::new(case.chain_params.tx_version),
+        );
 
         let built = build_signed_extrinsic(
-            case.pallet_idx,
-            case.call_idx,
+            PalletIdx::new(case.pallet_idx),
+            CallIdx::new(case.call_idx),
             &call_args,
             &public_key,
             |_msg| signature,
-            case.nonce,
+            ExtrinsicNonce::new(case.nonce),
             &chain,
         )
         .unwrap();
@@ -237,19 +240,19 @@ fn build_signed_extrinsic_payload_above_256_bytes_uses_blake2_hash() {
     let args = build_remark_args(&big_remark);
 
     let ext = build_signed_extrinsic(
-        0,
-        7,
+        PalletIdx::new(0),
+        CallIdx::new(7),
         &args,
         &public_key,
         |msg| {
             assert_eq!(msg.len(), 32, "long payload should be hashed to 32 bytes");
             substrate_sign(&kp, msg)
         },
-        0,
+        ExtrinsicNonce::new(0),
         &test_chain_params(),
     )
     .unwrap();
 
     let extracted = extract_call(&ext).unwrap();
-    assert_eq!(extracted.args, args.as_slice());
+    assert_eq!(extracted.args().as_bytes(), args.as_bytes());
 }

@@ -1,7 +1,7 @@
 use crate::error::SampError;
 use crate::types::{
-    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex, Nonce,
-    Pubkey, RemarkBytes, ViewTag,
+    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, EphPubkey,
+    ExtIndex, Nonce, Pubkey, RemarkBytes, ViewTag,
 };
 
 pub const SAMP_VERSION: u8 = 0x10;
@@ -102,7 +102,9 @@ pub enum Remark {
     },
     Channel {
         channel_ref: BlockRef,
-        content: Vec<u8>,
+        reply_to: BlockRef,
+        continues: BlockRef,
+        body: String,
     },
     Group(GroupPayload),
     Application {
@@ -176,7 +178,7 @@ pub fn encode_channel_msg(
 
 pub fn encode_group(
     nonce: &Nonce,
-    eph_pubkey: &Pubkey,
+    eph_pubkey: &EphPubkey,
     capsules: &Capsules,
     ciphertext: &Ciphertext,
 ) -> RemarkBytes {
@@ -240,13 +242,20 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
             })
         }
         0x04 => {
-            if data.len() < 7 {
+            if data.len() < 19 {
                 return Err(SampError::InsufficientData);
             }
             let channel_ref = decode_block_ref(data, 1);
+            let reply_to = decode_block_ref(data, 7);
+            let continues = decode_block_ref(data, 13);
+            let body = std::str::from_utf8(&data[19..])
+                .map_err(|_| SampError::InvalidUtf8)?
+                .to_string();
             Ok(Remark::Channel {
                 channel_ref,
-                content: data[7..].to_vec(),
+                reply_to,
+                continues,
+                body,
             })
         }
         0x05 => {

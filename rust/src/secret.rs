@@ -19,3 +19,41 @@ impl fmt::Debug for Seed {
         f.write_str("Seed([REDACTED])")
     }
 }
+
+#[derive(Clone)]
+pub struct ViewScalar(Zeroizing<[u8; 32]>);
+
+impl ViewScalar {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(Zeroizing::new(bytes))
+    }
+
+    pub fn expose_secret(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ViewScalar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ViewScalar([REDACTED])")
+    }
+}
+
+#[derive(Clone)]
+pub struct ContentKey(Zeroizing<[u8; 32]>);
+
+impl ContentKey {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(Zeroizing::new(bytes))
+    }
+
+    pub fn expose_secret(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ContentKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ContentKey([REDACTED])")
+    }
+}

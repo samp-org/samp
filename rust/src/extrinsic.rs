@@ -2,7 +2,10 @@ use blake2::Digest;
 use parity_scale_codec::{Compact, Encode};
 
 use crate::scale;
-use crate::types::{ExtrinsicBytes, GenesisHash, Pubkey, Signature};
+use crate::types::{
+    CallArgs, CallIdx, ExtrinsicBytes, ExtrinsicNonce, GenesisHash, PalletIdx, Pubkey, Signature,
+    SpecVersion, TxVersion,
+};
 
 const EXT_VERSION_SIGNED: u8 = 0x84;
 const ADDR_TYPE_ID: u8 = 0x00;
@@ -15,9 +18,31 @@ const MIN_SIGNER_PAYLOAD: usize = 34;
 
 #[derive(Clone, Debug)]
 pub struct ChainParams {
-    pub genesis_hash: GenesisHash,
-    pub spec_version: u32,
-    pub tx_version: u32,
+    genesis_hash: GenesisHash,
+    spec_version: SpecVersion,
+    tx_version: TxVersion,
+}
+
+impl ChainParams {
+    pub fn new(genesis_hash: GenesisHash, spec_version: SpecVersion, tx_version: TxVersion) -> Self {
+        Self {
+            genesis_hash,
+            spec_version,
+            tx_version,
+        }
+    }
+
+    pub fn genesis_hash(&self) -> &GenesisHash {
+        &self.genesis_hash
+    }
+
+    pub fn spec_version(&self) -> SpecVersion {
+        self.spec_version
+    }
+
+    pub fn tx_version(&self) -> TxVersion {
+        self.tx_version
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -40,33 +65,35 @@ impl core::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 pub fn build_signed_extrinsic(
-    pallet_idx: u8,
-    call_idx: u8,
-    call_args: &[u8],
+    pallet_idx: PalletIdx,
+    call_idx: CallIdx,
+    call_args: &CallArgs,
     public_key: &Pubkey,
     sign: impl Fn(&[u8]) -> Signature,
-    nonce: u32,
+    nonce: ExtrinsicNonce,
     chain_params: &ChainParams,
 ) -> Result<ExtrinsicBytes, Error> {
-    let _ = u32::try_from(call_args.len()).map_err(|_| Error::CallTooLarge {
-        len: call_args.len(),
+    let args_bytes = call_args.as_bytes();
+    let _ = u32::try_from(args_bytes.len()).map_err(|_| Error::CallTooLarge {
+        len: args_bytes.len(),
     })?;
 
-    let mut call_data = Vec::with_capacity(2 + call_args.len());
-    call_data.push(pallet_idx);
-    call_data.push(call_idx);
-    call_data.extend_from_slice(call_args);
+    let mut call_data = Vec::with_capacity(2 + args_bytes.len());
+    call_data.push(pallet_idx.get());
+    call_data.push(call_idx.get());
+    call_data.extend_from_slice(args_bytes);
 
     let tip: u8 = 0x00;
+    let nonce_raw = nonce.get();
 
     let mut signing_payload = Vec::new();
     signing_payload.extend_from_slice(&call_data);
     signing_payload.push(ERA_IMMORTAL);
-    Compact(nonce).encode_to(&mut signing_payload);
+    Compact(nonce_raw).encode_to(&mut signing_payload);
     signing_payload.push(tip);
     signing_payload.push(METADATA_HASH_DISABLED);
-    signing_payload.extend_from_slice(&chain_params.spec_version.to_le_bytes());
-    signing_payload.extend_from_slice(&chain_params.tx_version.to_le_bytes());
+    signing_payload.extend_from_slice(&chain_params.spec_version.get().to_le_bytes());
+    signing_payload.extend_from_slice(&chain_params.tx_version.get().to_le_bytes());
     signing_payload.extend_from_slice(chain_params.genesis_hash.as_bytes());
     signing_payload.extend_from_slice(chain_params.genesis_hash.as_bytes());
     signing_payload.push(0x00);
@@ -88,7 +115,7 @@ pub fn build_signed_extrinsic(
     extrinsic_payload.push(SIG_TYPE_SR25519);
     extrinsic_payload.extend_from_slice(signature.as_bytes());
     extrinsic_payload.push(ERA_IMMORTAL);
-    Compact(nonce).encode_to(&mut extrinsic_payload);
+    Compact(nonce_raw).encode_to(&mut extrinsic_payload);
     extrinsic_payload.push(tip);
     extrinsic_payload.push(METADATA_HASH_DISABLED);
     extrinsic_payload.extend_from_slice(&call_data);
@@ -117,13 +144,27 @@ pub fn extract_signer(extrinsic_bytes: &ExtrinsicBytes) -> Option<Pubkey> {
     Some(Pubkey::from_bytes(account))
 }
 
-pub struct ExtractedCall<'a> {
-    pub pallet: u8,
-    pub call: u8,
-    pub args: &'a [u8],
+pub struct ExtractedCall {
+    pallet: PalletIdx,
+    call: CallIdx,
+    args: CallArgs,
 }
 
-pub fn extract_call<'a>(extrinsic_bytes: &'a ExtrinsicBytes) -> Option<ExtractedCall<'a>> {
+impl ExtractedCall {
+    pub fn pallet(&self) -> PalletIdx {
+        self.pallet
+    }
+
+    pub fn call(&self) -> CallIdx {
+        self.call
+    }
+
+    pub fn args(&self) -> &CallArgs {
+        &self.args
+    }
+}
+
+pub fn extract_call(extrinsic_bytes: &ExtrinsicBytes) -> Option<ExtractedCall> {
     let bytes = extrinsic_bytes.as_bytes();
     let (_, prefix_len) = scale::decode_compact(bytes)?;
     let payload = &bytes[prefix_len..];
@@ -159,8 +200,8 @@ pub fn extract_call<'a>(extrinsic_bytes: &'a ExtrinsicBytes) -> Option<Extracted
     }
 
     Some(ExtractedCall {
-        pallet,
-        call,
-        args: &payload[offset..],
+        pallet: PalletIdx::new(pallet),
+        call: CallIdx::new(call),
+        args: CallArgs::from_bytes(payload[offset..].to_vec()),
     })
 }

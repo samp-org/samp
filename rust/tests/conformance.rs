@@ -169,7 +169,7 @@ fn conformance_keypair_alice() {
     let kp = msk.expand_to_keypair(ExpansionMode::Ed25519);
     assert_eq!(kp.public.to_bytes(), h32(&v.alice.sr25519_public));
     let scalar = encryption::sr25519_signing_scalar(&seed(&v.alice.seed));
-    assert_eq!(scalar.to_bytes(), h32(&v.alice.signing_scalar));
+    assert_eq!(*scalar.expose_secret(), h32(&v.alice.signing_scalar));
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn conformance_keypair_bob() {
     let kp = msk.expand_to_keypair(ExpansionMode::Ed25519);
     assert_eq!(kp.public.to_bytes(), h32(&v.bob.sr25519_public));
     let scalar = encryption::sr25519_signing_scalar(&seed(&v.bob.seed));
-    assert_eq!(scalar.to_bytes(), h32(&v.bob.signing_scalar));
+    assert_eq!(*scalar.expose_secret(), h32(&v.bob.signing_scalar));
 }
 
 #[test]

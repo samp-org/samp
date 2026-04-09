@@ -19,11 +19,12 @@ pub use extrinsic::{
 };
 pub use metadata::{ErrorEntry, ErrorTable, Metadata, StorageLayout};
 pub use scale::{decode_bytes, decode_compact, encode_compact};
-pub use secret::Seed;
+pub use secret::{ContentKey, Seed, ViewScalar};
 pub use types::{
-    BlockNumber, BlockRef, Capsules, ChannelDescription, ChannelName, Ciphertext, ExtIndex,
-    ExtrinsicBytes, GenesisHash, Nonce, Plaintext, Pubkey, RemarkBytes, Signature, Ss58Address,
-    Ss58Prefix, ViewTag,
+    BlockNumber, BlockRef, CallArgs, CallIdx, Capsules, ChannelDescription, ChannelName,
+    Ciphertext, EphPubkey, ExtIndex, ExtrinsicBytes, ExtrinsicNonce, GenesisHash, Nonce,
+    PalletIdx, Plaintext, Pubkey, RemarkBytes, Signature, SpecVersion, Ss58Address, Ss58Prefix,
+    TxVersion, ViewTag,
 };
 pub use wire::{
     decode_channel_content, decode_channel_create, decode_group_content, decode_group_members,

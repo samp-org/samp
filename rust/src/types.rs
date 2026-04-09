@@ -103,6 +103,35 @@ fn write_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8]) -> fmt::Result {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct EphPubkey([u8; 32]);
+
+impl EphPubkey {
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
+
+    pub fn to_compressed_ristretto(&self) -> curve25519_dalek::ristretto::CompressedRistretto {
+        curve25519_dalek::ristretto::CompressedRistretto(self.0)
+    }
+}
+
+impl fmt::Debug for EphPubkey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("EphPubkey(0x")?;
+        write_hex(f, &self.0)?;
+        f.write_str(")")
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Pubkey([u8; 32]);
 
 impl Pubkey {
@@ -527,3 +556,130 @@ impl fmt::Display for Ss58Address {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct PalletIdx(u8);
+
+impl PalletIdx {
+    pub const fn new(b: u8) -> Self {
+        Self(b)
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Debug for PalletIdx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PalletIdx({})", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct CallIdx(u8);
+
+impl CallIdx {
+    pub const fn new(b: u8) -> Self {
+        Self(b)
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Debug for CallIdx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CallIdx({})", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ExtrinsicNonce(u32);
+
+impl ExtrinsicNonce {
+    pub const ZERO: Self = Self(0);
+
+    pub const fn new(n: u32) -> Self {
+        Self(n)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Debug for ExtrinsicNonce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ExtrinsicNonce({})", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct SpecVersion(u32);
+
+impl SpecVersion {
+    pub const fn new(n: u32) -> Self {
+        Self(n)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Debug for SpecVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SpecVersion({})", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TxVersion(u32);
+
+impl TxVersion {
+    pub const fn new(n: u32) -> Self {
+        Self(n)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Debug for TxVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TxVersion({})", self.0)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct CallArgs(Vec<u8>);
+
+impl CallArgs {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for CallArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CallArgs({} bytes)", self.0.len())
+    }
+}

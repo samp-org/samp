@@ -166,21 +166,13 @@ fn channel_message_roundtrip() {
     assert_eq!(remark.as_bytes()[0], 0x14);
     assert_eq!(remark.len(), 19 + 15);
 
-    let Remark::Channel { channel_ref, content } = decode_remark(&remark).unwrap() else {
+    let Remark::Channel { channel_ref, reply_to, continues, body } = decode_remark(&remark).unwrap() else {
         panic!("expected Channel");
     };
     assert_eq!(channel_ref, br(200, 3));
-
-    let (reply_to, continues, body) = decode_channel_content(&content).unwrap();
-    assert_eq!(
-        reply_to,
-        br(199, 1)
-    );
-    assert_eq!(
-        continues,
-        br(198, 0)
-    );
-    assert_eq!(body, b"channel message");
+    assert_eq!(reply_to, br(199, 1));
+    assert_eq!(continues, br(198, 0));
+    assert_eq!(body, "channel message");
 }
 
 // Group message (0x15) -- per-message capsules
