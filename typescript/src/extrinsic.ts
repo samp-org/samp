@@ -1,6 +1,18 @@
 import { blake2b } from "@noble/hashes/blake2b";
 
 import { decodeCompact, encodeCompact } from "./scale.js";
+import {
+  CallArgs,
+  CallIdx,
+  ExtrinsicBytes,
+  ExtrinsicNonce,
+  GenesisHash,
+  PalletIdx,
+  Pubkey,
+  Signature,
+  SpecVersion,
+  TxVersion,
+} from "./types.js";
 
 const EXT_VERSION_SIGNED = 0x84;
 const ADDR_TYPE_ID = 0x00;
@@ -19,18 +31,18 @@ export class ExtrinsicError extends Error {
 }
 
 export interface ChainParams {
-  genesisHash: Uint8Array;
-  specVersion: number;
-  txVersion: number;
+  readonly genesisHash: GenesisHash;
+  readonly specVersion: SpecVersion;
+  readonly txVersion: TxVersion;
 }
 
 export interface ExtractedCall {
-  pallet: number;
-  call: number;
-  args: Uint8Array;
+  readonly pallet: PalletIdx;
+  readonly call: CallIdx;
+  readonly args: CallArgs;
 }
 
-export type SignFn = (msg: Uint8Array) => Uint8Array;
+export type SignFn = (msg: Uint8Array) => Signature;
 
 function concat(...parts: Uint8Array[]): Uint8Array {
   let total = 0;
@@ -54,36 +66,28 @@ function u32LE(value: number): Uint8Array {
 }
 
 export function buildSignedExtrinsic(
-  palletIdx: number,
-  callIdx: number,
-  callArgs: Uint8Array,
-  publicKey: Uint8Array,
+  pallet: PalletIdx,
+  call: CallIdx,
+  args: CallArgs,
+  publicKey: Pubkey,
   sign: SignFn,
-  nonce: number,
-  chainParams: ChainParams,
-): Uint8Array {
-  if (publicKey.length !== 32) {
-    throw new ExtrinsicError(`public_key must be 32 bytes, got ${publicKey.length}`);
-  }
-  if (chainParams.genesisHash.length !== 32) {
-    throw new ExtrinsicError(
-      `genesis_hash must be 32 bytes, got ${chainParams.genesisHash.length}`,
-    );
-  }
-
-  const callData = concat(new Uint8Array([palletIdx, callIdx]), callArgs);
+  nonce: ExtrinsicNonce,
+  chain: ChainParams,
+): ExtrinsicBytes {
+  const argBytes = CallArgs.asBytes(args);
+  const callData = concat(new Uint8Array([PalletIdx.get(pallet), CallIdx.get(call)]), argBytes);
   const tip = new Uint8Array([0]);
 
   const signingPayload = concat(
     callData,
     new Uint8Array([ERA_IMMORTAL]),
-    encodeCompact(BigInt(nonce)),
+    encodeCompact(BigInt(ExtrinsicNonce.get(nonce))),
     tip,
     new Uint8Array([METADATA_HASH_DISABLED]),
-    u32LE(chainParams.specVersion),
-    u32LE(chainParams.txVersion),
-    chainParams.genesisHash,
-    chainParams.genesisHash,
+    u32LE(SpecVersion.get(chain.specVersion)),
+    u32LE(TxVersion.get(chain.txVersion)),
+    chain.genesisHash,
+    chain.genesisHash,
     new Uint8Array([0x00]),
   );
 
@@ -101,37 +105,43 @@ export function buildSignedExtrinsic(
     new Uint8Array([SIG_TYPE_SR25519]),
     signature,
     new Uint8Array([ERA_IMMORTAL]),
-    encodeCompact(BigInt(nonce)),
+    encodeCompact(BigInt(ExtrinsicNonce.get(nonce))),
     tip,
     new Uint8Array([METADATA_HASH_DISABLED]),
     callData,
   );
 
-  return concat(encodeCompact(BigInt(extrinsicPayload.length)), extrinsicPayload);
+  return ExtrinsicBytes.fromBytes(
+    concat(encodeCompact(BigInt(extrinsicPayload.length)), extrinsicPayload),
+  );
 }
 
-export function extractSigner(extrinsicBytes: Uint8Array): Uint8Array | null {
-  const decoded = decodeCompact(extrinsicBytes);
+export function extractSigner(extrinsicBytes: ExtrinsicBytes): Pubkey | null {
+  // WHY: input boundary — payload is untrusted.
+  const bytes = ExtrinsicBytes.asBytes(extrinsicBytes);
+  const decoded = decodeCompact(bytes);
   if (decoded === null) return null;
   const [, prefixLen] = decoded;
-  const payload = extrinsicBytes.subarray(prefixLen);
+  const payload = bytes.subarray(prefixLen);
   if (
     payload.length < MIN_SIGNER_PAYLOAD ||
-    (payload[0] & 0x80) === 0 ||
+    (payload[0]! & 0x80) === 0 ||
     payload[1] !== ADDR_TYPE_ID
   ) {
     return null;
   }
-  return payload.subarray(2, 34);
+  return Pubkey.fromBytes(payload.slice(2, 34));
 }
 
-export function extractCall(extrinsicBytes: Uint8Array): ExtractedCall | null {
-  const decoded = decodeCompact(extrinsicBytes);
+export function extractCall(extrinsicBytes: ExtrinsicBytes): ExtractedCall | null {
+  // WHY: input boundary — payload is untrusted.
+  const bytes = ExtrinsicBytes.asBytes(extrinsicBytes);
+  const decoded = decodeCompact(bytes);
   if (decoded === null) return null;
   const [, prefixLen] = decoded;
-  const payload = extrinsicBytes.subarray(prefixLen);
+  const payload = bytes.subarray(prefixLen);
 
-  if (payload.length < MIN_SIGNED_EXTRINSIC || (payload[0] & 0x80) === 0) {
+  if (payload.length < MIN_SIGNED_EXTRINSIC || (payload[0]! & 0x80) === 0) {
     return null;
   }
 
@@ -154,11 +164,11 @@ export function extractCall(extrinsicBytes: Uint8Array): ExtractedCall | null {
   offset += 1;
 
   if (offset + 2 > payload.length) return null;
-  const pallet = payload[offset];
-  const call = payload[offset + 1];
+  const pallet = PalletIdx.from(payload[offset]!);
+  const call = CallIdx.from(payload[offset + 1]!);
   offset += 2;
 
   if (offset > payload.length) return null;
 
-  return { pallet, call, args: payload.subarray(offset) };
+  return { pallet, call, args: CallArgs.fromBytes(payload.slice(offset)) };
 }

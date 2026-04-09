@@ -1,4 +1,5 @@
 import { decodeCompact } from "./scale.js";
+import { CallIdx, PalletIdx } from "./types.js";
 
 const METADATA_MAGIC = 0x6174_656d;
 
@@ -58,12 +59,12 @@ class Reader {
   }
 
   readU8(): number {
-    return this.read(1)[0];
+    return this.read(1)[0]!;
   }
 
   readU32(): number {
     const b = this.read(4);
-    return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
+    return (b[0]! | (b[1]! << 8) | (b[2]! << 16) | (b[3]! << 24)) >>> 0;
   }
 
   readCompact(): number {
@@ -155,7 +156,7 @@ export function decodeUint(layout: StorageLayout, data: Uint8Array): bigint {
   }
   let value = 0n;
   for (let i = 0; i < layout.width; i++) {
-    value |= BigInt(data[layout.offset + i]) << BigInt(i * 8);
+    value |= BigInt(data[layout.offset + i]!) << BigInt(i * 8);
   }
   return value;
 }
@@ -262,7 +263,7 @@ function parseAfter(haystack: string, needle: string): number | null {
   const rest = haystack.slice(i + needle.length);
   const m = rest.match(/^\s*(\d+)/);
   if (m === null) return null;
-  return parseInt(m[1], 10);
+  return parseInt(m[1]!, 10);
 }
 
 function parseFirstByteAfter(haystack: string, needle: string): number | null {
@@ -271,19 +272,19 @@ function parseFirstByteAfter(haystack: string, needle: string): number | null {
   const rest = haystack.slice(i + needle.length);
   const m = rest.match(/\[(\d+)/);
   if (m === null) return null;
-  return parseInt(m[1], 10);
+  return parseInt(m[1]!, 10);
 }
 
 export class Metadata {
   private registry: TypeShape[];
   private storage: Map<string, number>;
-  private calls: Map<string, [number, number]>;
+  private calls: Map<string, [PalletIdx, CallIdx]>;
   errors: ErrorTable;
 
   constructor(
     registry: TypeShape[],
     storage: Map<string, number>,
-    calls: Map<string, [number, number]>,
+    calls: Map<string, [PalletIdx, CallIdx]>,
     errors: ErrorTable,
   ) {
     this.registry = registry;
@@ -341,7 +342,7 @@ export class Metadata {
     return { offset, width: shape.width };
   }
 
-  findCallIndex(pallet: string, call: string): [number, number] | null {
+  findCallIndex(pallet: string, call: string): [PalletIdx, CallIdx] | null {
     const result = this.calls.get(`${pallet}.${call}`);
     return result === undefined ? null : result;
   }
@@ -350,7 +351,7 @@ export class Metadata {
     if (typeId < 0 || typeId >= this.registry.length) {
       throw new MetadataError(`type id ${typeId} missing from registry`);
     }
-    return this.registry[typeId];
+    return this.registry[typeId]!;
   }
 
   private byteSize(typeId: number): number {
@@ -484,7 +485,7 @@ function primitiveShape(tag: number): TypeShape {
   };
   if (tag === 2) return VARIABLE;
   if (!(tag in table)) throw new ScaleError(`unknown primitive tag ${tag}`);
-  const [width, unsignedInt] = table[tag];
+  const [width, unsignedInt] = table[tag]!;
   return { kind: "primitive", width, unsignedInt };
 }
 
@@ -568,7 +569,7 @@ function buildErrorTable(
   for (const [palletName, palletIdx, errorTy] of pending) {
     if (errorTy < 0 || errorTy >= registry.length) continue;
     const shape = registry[errorTy];
-    if (shape.kind !== "variant") continue;
+    if (shape === undefined || shape.kind !== "variant") continue;
     for (const [variantIdx, variantName, doc] of shape.entries) {
       table.byIdx.set(`${palletIdx}:${variantIdx}`, {
         pallet: palletName,
@@ -583,14 +584,14 @@ function buildErrorTable(
 function resolveCallIndices(
   registry: TypeShape[],
   pending: Array<[string, number, number]>,
-): Map<string, [number, number]> {
-  const out = new Map<string, [number, number]>();
+): Map<string, [PalletIdx, CallIdx]> {
+  const out = new Map<string, [PalletIdx, CallIdx]>();
   for (const [palletName, palletIdx, callsTy] of pending) {
     if (callsTy < 0 || callsTy >= registry.length) continue;
     const shape = registry[callsTy];
-    if (shape.kind !== "variant") continue;
+    if (shape === undefined || shape.kind !== "variant") continue;
     for (const [callIdx, callName] of shape.entries) {
-      out.set(`${palletName}.${callName}`, [palletIdx, callIdx]);
+      out.set(`${palletName}.${callName}`, [PalletIdx.from(palletIdx), CallIdx.from(callIdx)]);
     }
   }
   return out;

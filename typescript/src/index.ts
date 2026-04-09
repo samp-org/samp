@@ -1,14 +1,44 @@
+import "./ss58.js";
+
 export { SampError } from "./error.js";
 export {
+  BlockNumber,
+  BlockRef,
+  CallArgs,
+  CallIdx,
+  CAPSULE_SIZE,
+  CHANNEL_DESC_MAX,
+  CHANNEL_NAME_MAX,
+  Capsules,
+  ChannelDescription,
+  ChannelName,
+  Ciphertext,
+  ContentKey,
+  EphPubkey,
+  ExtIndex,
+  ExtrinsicBytes,
+  ExtrinsicNonce,
+  GenesisHash,
+  Nonce,
+  PalletIdx,
+  Plaintext,
+  Pubkey,
+  RemarkBytes,
+  Signature,
+  SpecVersion,
+  Ss58Address,
+  Ss58Prefix,
+  TxVersion,
+  ViewTag,
+} from "./types.js";
+export { Seed, ViewScalar } from "./secret.js";
+export {
   SAMP_VERSION,
-  ContentType,
-  contentTypeFromByte,
   THREAD_HEADER_SIZE,
   CHANNEL_HEADER_SIZE,
-  CAPSULE_SIZE,
-  CHANNEL_NAME_MAX,
-  CHANNEL_DESC_MAX,
-  BLOCK_REF_ZERO,
+  ContentType,
+  contentTypeFromByte,
+  isSampRemark,
   encodePublic,
   encodeEncrypted,
   encodeChannelMsg,
@@ -19,13 +49,11 @@ export {
   decodeThreadContent,
   encodeChannelContent,
   decodeChannelContent,
-  decodeChannelCreate,
   decodeGroupContent,
-  channelRefFromRecipient,
   encodeGroupMembers,
   decodeGroupMembers,
 } from "./wire.js";
-export type { BlockRef, Remark } from "./wire.js";
+export type { Remark } from "./wire.js";
 export {
   ENCRYPTED_OVERHEAD,
   sr25519SigningScalar,
@@ -38,7 +66,6 @@ export {
   unsealRecipient,
   deriveGroupEphemeral,
   buildCapsules,
-  scanCapsules,
   encryptForGroup,
   decryptFromGroup,
 } from "./crypto.js";
