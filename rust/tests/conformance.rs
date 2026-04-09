@@ -416,3 +416,35 @@ fn conformance_negative_truncated_encrypted() {
     let v = load_vectors();
     assert!(decode_remark(&rb(&v.negative_cases.truncated_encrypted)).is_err());
 }
+
+#[test]
+fn conformance_content_type_byte_values_pinned() {
+    assert_eq!(ContentType::Public.to_byte(), 0x10);
+    assert_eq!(ContentType::Encrypted.to_byte(), 0x11);
+    assert_eq!(ContentType::Thread.to_byte(), 0x12);
+    assert_eq!(ContentType::ChannelCreate.to_byte(), 0x13);
+    assert_eq!(ContentType::Channel.to_byte(), 0x14);
+    assert_eq!(ContentType::Group.to_byte(), 0x15);
+}
+
+#[test]
+fn conformance_typed_wrappers_round_trip() {
+    let v = load_vectors();
+    let bob_raw = h32(&v.bob.sr25519_public);
+    assert_eq!(Pubkey::from_bytes(bob_raw).as_bytes(), &bob_raw);
+    let nonce_raw = h12(&v.encrypted_message.nonce);
+    assert_eq!(Nonce::from_bytes(nonce_raw).as_bytes(), &nonce_raw);
+    let gh_raw = h32(&v.alice.sr25519_public);
+    assert_eq!(GenesisHash::from_bytes(gh_raw).as_bytes(), &gh_raw);
+}
+
+#[test]
+fn conformance_block_ref_display_format() {
+    let r = BlockRef::from_parts(42, 7);
+    assert_eq!(format!("{r:?}"), "#42.7");
+}
+
+#[test]
+fn conformance_channel_name_parse_empty_rejected() {
+    assert!(ChannelName::parse("").is_err());
+}
