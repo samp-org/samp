@@ -467,6 +467,38 @@ func TestConformanceGroupDecryptByMember(t *testing.T) {
 	assertEqual(t, "root_plaintext_trial", plaintext2.Bytes(), h(v.GroupMessage.RootPlaintext))
 }
 
+func TestConformanceContentTypeByteValuesPinned(t *testing.T) {
+	require.Equal(t, byte(0x10), ContentTypePublic.Byte())
+	require.Equal(t, byte(0x11), ContentTypeEncrypted.Byte())
+	require.Equal(t, byte(0x12), ContentTypeThread.Byte())
+	require.Equal(t, byte(0x13), ContentTypeChannelCreate.Byte())
+	require.Equal(t, byte(0x14), ContentTypeChannel.Byte())
+	require.Equal(t, byte(0x15), ContentTypeGroup.Byte())
+}
+
+func TestConformanceTypedWrappersRoundTrip(t *testing.T) {
+	v := loadVectors(t)
+	bobRaw := h32(v.Bob.Sr25519Public)
+	pk := PubkeyFromBytes(bobRaw)
+	gotPk := pk.Bytes()
+	require.Equal(t, bobRaw, gotPk)
+
+	nonceRaw := h12(v.EncryptedMessage.Nonce)
+	n := NonceFromBytes(nonceRaw)
+	gotN := n.Bytes()
+	require.Equal(t, nonceRaw, gotN)
+
+	ghRaw := h32(v.Alice.Sr25519Public)
+	gh := GenesisHashFromBytes(ghRaw)
+	gotGh := gh.Bytes()
+	require.Equal(t, ghRaw, gotGh)
+}
+
+func TestConformanceBlockRefStringFormat(t *testing.T) {
+	r := BlockRefFromParts(42, 7)
+	require.Equal(t, "#42.7", r.String())
+}
+
 func TestEncodeChannelCreateNameTooLongReturnsError(t *testing.T) {
 	_, err := ChannelNameParse(strings.Repeat("x", 33))
 	require.Error(t, err)
