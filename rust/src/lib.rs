@@ -22,15 +22,14 @@ pub use scale::{decode_bytes, decode_compact, encode_compact};
 pub use secret::{ContentKey, Seed, ViewScalar};
 pub use types::{
     BlockNumber, BlockRef, CallArgs, CallIdx, Capsules, ChannelDescription, ChannelName,
-    Ciphertext, EphPubkey, ExtIndex, ExtrinsicBytes, ExtrinsicNonce, GenesisHash, Nonce,
-    PalletIdx, Plaintext, Pubkey, RemarkBytes, Signature, SpecVersion, Ss58Address, Ss58Prefix,
-    TxVersion, ViewTag,
+    Ciphertext, EphPubkey, ExtIndex, ExtrinsicBytes, ExtrinsicNonce, GenesisHash, Nonce, PalletIdx,
+    Plaintext, Pubkey, RemarkBytes, Signature, SpecVersion, Ss58Address, Ss58Prefix, TxVersion,
+    ViewTag,
 };
 pub use wire::{
     decode_channel_content, decode_channel_create, decode_group_content, decode_group_members,
     decode_remark, decode_thread_content, encode_channel_content, encode_channel_create,
     encode_channel_msg, encode_encrypted, encode_group, encode_group_members, encode_public,
-    encode_thread_content, is_samp_remark, ContentType, EncryptedPayload, GroupPayload, Remark,
-    CAPSULE_SIZE, CHANNEL_DESC_MAX, CHANNEL_HEADER_SIZE, CHANNEL_NAME_MAX, SAMP_VERSION,
-    THREAD_HEADER_SIZE,
+    encode_thread_content, is_samp_remark, ContentType, Remark, CAPSULE_SIZE, CHANNEL_DESC_MAX,
+    CHANNEL_HEADER_SIZE, CHANNEL_NAME_MAX, SAMP_VERSION, THREAD_HEADER_SIZE,
 };

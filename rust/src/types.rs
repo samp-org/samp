@@ -541,7 +541,6 @@ impl Ss58Address {
     pub fn prefix(&self) -> Ss58Prefix {
         self.prefix
     }
-
 }
 
 impl fmt::Debug for Ss58Address {

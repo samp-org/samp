@@ -76,26 +76,21 @@ fn decode_block_ref(data: &[u8], offset: usize) -> BlockRef {
 }
 
 #[derive(Debug, Clone)]
-pub struct EncryptedPayload {
-    pub view_tag: ViewTag,
-    pub nonce: Nonce,
-    pub encrypted_content: Ciphertext,
-}
-
-#[derive(Debug, Clone)]
-pub struct GroupPayload {
-    pub nonce: Nonce,
-    pub content: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
 pub enum Remark {
     Public {
         recipient: Pubkey,
         body: String,
     },
-    Encrypted(EncryptedPayload),
-    Thread(EncryptedPayload),
+    Encrypted {
+        view_tag: ViewTag,
+        nonce: Nonce,
+        ciphertext: Ciphertext,
+    },
+    Thread {
+        view_tag: ViewTag,
+        nonce: Nonce,
+        ciphertext: Ciphertext,
+    },
     ChannelCreate {
         name: ChannelName,
         description: ChannelDescription,
@@ -106,10 +101,13 @@ pub enum Remark {
         continues: BlockRef,
         body: String,
     },
-    Group(GroupPayload),
-    Application {
-        type_byte: u8,
+    Group {
+        nonce: Nonce,
         content: Vec<u8>,
+    },
+    Application {
+        tag: u8,
+        payload: Vec<u8>,
     },
 }
 
@@ -117,12 +115,12 @@ impl Remark {
     pub fn content_type(&self) -> ContentType {
         match self {
             Self::Public { .. } => ContentType::Public,
-            Self::Encrypted(_) => ContentType::Encrypted,
-            Self::Thread(_) => ContentType::Thread,
+            Self::Encrypted { .. } => ContentType::Encrypted,
+            Self::Thread { .. } => ContentType::Thread,
             Self::ChannelCreate { .. } => ContentType::ChannelCreate,
             Self::Channel { .. } => ContentType::Channel,
-            Self::Group(_) => ContentType::Group,
-            Self::Application { type_byte, .. } => ContentType::Application(*type_byte),
+            Self::Group { .. } => ContentType::Group,
+            Self::Application { tag, .. } => ContentType::Application(*tag),
         }
     }
 }
@@ -140,13 +138,13 @@ pub fn encode_encrypted(
     content_type: ContentType,
     view_tag: ViewTag,
     nonce: &Nonce,
-    encrypted_content: &Ciphertext,
+    ciphertext: &Ciphertext,
 ) -> RemarkBytes {
-    let mut out = Vec::with_capacity(14 + encrypted_content.len());
+    let mut out = Vec::with_capacity(14 + ciphertext.len());
     out.push(content_type.to_byte());
     out.push(view_tag.get());
     out.extend_from_slice(nonce.as_bytes());
-    out.extend_from_slice(encrypted_content.as_bytes());
+    out.extend_from_slice(ciphertext.as_bytes());
     RemarkBytes::from_bytes(out)
 }
 
@@ -223,15 +221,20 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
             let view_tag = ViewTag::new(data[1]);
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes.copy_from_slice(&data[2..14]);
-            let payload = EncryptedPayload {
-                view_tag,
-                nonce: Nonce::from_bytes(nonce_bytes),
-                encrypted_content: Ciphertext::from_bytes(data[14..].to_vec()),
-            };
+            let nonce = Nonce::from_bytes(nonce_bytes);
+            let ciphertext = Ciphertext::from_bytes(data[14..].to_vec());
             if ct_byte & 0x0F == 0x01 {
-                Ok(Remark::Encrypted(payload))
+                Ok(Remark::Encrypted {
+                    view_tag,
+                    nonce,
+                    ciphertext,
+                })
             } else {
-                Ok(Remark::Thread(payload))
+                Ok(Remark::Thread {
+                    view_tag,
+                    nonce,
+                    ciphertext,
+                })
             }
         }
         0x03 => {
@@ -264,15 +267,15 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
             }
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes.copy_from_slice(&data[1..13]);
-            Ok(Remark::Group(GroupPayload {
+            Ok(Remark::Group {
                 nonce: Nonce::from_bytes(nonce_bytes),
                 content: data[13..].to_vec(),
-            }))
+            })
         }
         0x06 | 0x07 => Err(SampError::ReservedContentType(ct_byte)),
         0x08..=0x0F => Ok(Remark::Application {
-            type_byte: ct_byte,
-            content: data[1..].to_vec(),
+            tag: ct_byte,
+            payload: data[1..].to_vec(),
         }),
         _ => unreachable!(),
     }
@@ -390,4 +393,3 @@ pub fn decode_group_members(data: &[u8]) -> Result<(Vec<Pubkey>, &[u8]), SampErr
     }
     Ok((members, &data[members_end..]))
 }
-

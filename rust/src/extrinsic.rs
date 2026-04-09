@@ -24,7 +24,11 @@ pub struct ChainParams {
 }
 
 impl ChainParams {
-    pub fn new(genesis_hash: GenesisHash, spec_version: SpecVersion, tx_version: TxVersion) -> Self {
+    pub fn new(
+        genesis_hash: GenesisHash,
+        spec_version: SpecVersion,
+        tx_version: TxVersion,
+    ) -> Self {
         Self {
             genesis_hash,
             spec_version,

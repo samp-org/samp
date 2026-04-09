@@ -33,10 +33,10 @@ let enc_remark = encode_encrypted(ContentType::Encrypted, tag, &nonce, &cipherte
 // Decrypt
 let recipient_seed = Seed::from_bytes([0u8; 32]);
 let scalar = sr25519_signing_scalar(&recipient_seed);
-let Remark::Encrypted(payload) = decode_remark(&enc_remark).unwrap() else {
+let Remark::Encrypted { nonce: n, ciphertext: ct, .. } = decode_remark(&enc_remark).unwrap() else {
     panic!("expected Encrypted");
 };
-let plaintext = decrypt(&payload, &scalar).unwrap();
+let plaintext = decrypt(&ct, &n, &scalar).unwrap();
 ```
 
 ## API

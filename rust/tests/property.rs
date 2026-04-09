@@ -88,10 +88,10 @@ proptest! {
         let capsules = samp::Capsules::from_bytes(vec![0u8; n_capsules * 33]).unwrap();
         let ciphertext = samp::Ciphertext::from_bytes(vec![0u8; ct_len]);
         let remark = encode_group(&nonce, &eph_pubkey, &capsules, &ciphertext);
-        let Remark::Group(payload) = decode_remark(&remark).unwrap() else {
+        let Remark::Group { nonce: n_out, .. } = decode_remark(&remark).unwrap() else {
             panic!("expected Group");
         };
-        prop_assert_eq!(payload.nonce, nonce);
+        prop_assert_eq!(n_out, nonce);
     }
 
     #[test]
