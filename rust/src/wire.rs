@@ -281,8 +281,6 @@ pub fn decode_remark(remark: &RemarkBytes) -> Result<Remark, SampError> {
     }
 }
 
-// Content helpers (thread/channel/group plaintext encoding)
-
 pub const CHANNEL_HEADER_SIZE: usize = 12;
 pub const THREAD_HEADER_SIZE: usize = 18;
 

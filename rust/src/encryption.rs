@@ -62,8 +62,6 @@ fn derive_symmetric_key(shared_secret: &[u8; 32], nonce: &Nonce) -> [u8; 32] {
     key
 }
 
-// 1:1 Encryption (Section 5.6) -- used by 0x11/0x12
-
 fn derive_ephemeral(seed: &Seed, recipient: &[u8; 32], nonce: &Nonce) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, seed.expose_secret());
     let mut info = [0u8; 44];
@@ -233,8 +231,6 @@ pub fn decrypt_as_sender(
     sym_key.zeroize();
     result
 }
-
-// Multi-Recipient Encryption (Section 5.7) -- used by 0x15 (group)
 
 pub fn derive_group_ephemeral(sender_seed: &Seed, nonce: &Nonce) -> Scalar {
     let hk = Hkdf::<Sha256>::new(None, sender_seed.expose_secret());
