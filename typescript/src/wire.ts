@@ -81,7 +81,7 @@ export type Remark =
       readonly channelRef: BlockRef;
       readonly replyTo: BlockRef;
       readonly continues: BlockRef;
-      readonly body: Uint8Array;
+      readonly body: string;
     }
   | { readonly type: ContentType.Group; readonly nonce: Nonce; readonly content: Uint8Array }
   | { readonly type: ContentType.Application; readonly tag: number; readonly payload: Uint8Array };
@@ -144,14 +144,15 @@ export function encodeChannelMsg(
   channelRef: BlockRef,
   replyTo: BlockRef,
   continues: BlockRef,
-  body: Uint8Array,
+  body: string,
 ): RemarkBytes {
-  const out = new Uint8Array(19 + body.length);
+  const bodyBytes = new TextEncoder().encode(body);
+  const out = new Uint8Array(19 + bodyBytes.length);
   out[0] = ContentType.Channel;
   writeBlockRef(out, 1, channelRef);
   writeBlockRef(out, 7, replyTo);
   writeBlockRef(out, 13, continues);
-  out.set(body, 19);
+  out.set(bodyBytes, 19);
   return RemarkBytes.fromBytes(out);
 }
 
@@ -211,12 +212,13 @@ export function decodeRemark(remark: RemarkBytes): Remark {
     }
     case 0x04: {
       if (data.length < 19) throw new SampError("insufficient data");
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(data.slice(19));
       return {
         type: ContentType.Channel,
         channelRef: readBlockRef(data, 1),
         replyTo: readBlockRef(data, 7),
         continues: readBlockRef(data, 13),
-        body: data.slice(19),
+        body,
       };
     }
     case 0x05: {

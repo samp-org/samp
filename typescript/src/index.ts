@@ -13,7 +13,6 @@ export {
   ChannelDescription,
   ChannelName,
   Ciphertext,
-  ContentKey,
   EphPubkey,
   ExtIndex,
   ExtrinsicBytes,
@@ -31,7 +30,7 @@ export {
   TxVersion,
   ViewTag,
 } from "./types.js";
-export { Seed, ViewScalar } from "./secret.js";
+export { ContentKey, Seed, ViewScalar } from "./secret.js";
 export {
   SAMP_VERSION,
   THREAD_HEADER_SIZE,

@@ -5,17 +5,8 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha";
 import { RistrettoPoint } from "@noble/curves/ed25519";
 import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/abstract/utils";
 import { SampError } from "./error.js";
-import { Seed, ViewScalar } from "./secret.js";
-import {
-  Capsules,
-  Ciphertext,
-  ContentKey,
-  EphPubkey,
-  Nonce,
-  Plaintext,
-  Pubkey,
-  ViewTag,
-} from "./types.js";
+import { ContentKey, Seed, ViewScalar } from "./secret.js";
+import { Capsules, Ciphertext, EphPubkey, Nonce, Plaintext, Pubkey, ViewTag } from "./types.js";
 
 export const ENCRYPTED_OVERHEAD = 80;
 const CAPSULE_SIZE = 33;
@@ -83,6 +74,12 @@ function deriveKeyWrap(sharedSecret: Uint8Array, nonce: Nonce): Uint8Array {
   return hkdfExpand(sharedSecret, Nonce.chachaBytes(nonce), KEY_WRAP_INFO, 32);
 }
 
+// WHY: the single crypto boundary that turns a 32-byte ViewScalar into the
+// bigint scalar the ristretto curve operations expect.
+function viewScalarToBigInt(vs: ViewScalar): bigint {
+  return mod(bytesToNumberLE(ViewScalar.exposeSecret(vs)), CURVE_ORDER);
+}
+
 export function sr25519SigningScalar(seed: Seed): ViewScalar {
   const raw = Seed.exposeSecret(seed);
   const h = sha512(raw);
@@ -91,12 +88,13 @@ export function sr25519SigningScalar(seed: Seed): ViewScalar {
   h[31]! |= 64;
   const key = h.slice(0, 32);
   divideScalarByCofactor(key);
-  return ViewScalar.fromBigInt(mod(bytesToNumberLE(key), CURVE_ORDER));
+  const scalar = mod(bytesToNumberLE(key), CURVE_ORDER);
+  return ViewScalar.fromBytes(numberToBytesLE(scalar, 32));
 }
 
 export function publicFromSeed(seed: Seed): Pubkey {
   const scalar = sr25519SigningScalar(seed);
-  const raw = RistrettoPoint.BASE.multiply(ViewScalar.get(scalar)).toRawBytes();
+  const raw = RistrettoPoint.BASE.multiply(viewScalarToBigInt(scalar)).toRawBytes();
   return Pubkey.fromBytes(raw);
 }
 
@@ -126,7 +124,7 @@ export function encrypt(
 export function decrypt(ciphertext: Ciphertext, nonce: Nonce, signingScalar: ViewScalar): Plaintext {
   const content = Ciphertext.asBytes(ciphertext);
   if (content.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
-  const sharedSecret = ecdhSharedSecret(ViewScalar.get(signingScalar), content.slice(0, 32));
+  const sharedSecret = ecdhSharedSecret(viewScalarToBigInt(signingScalar), content.slice(0, 32));
   const sealedTo = content.slice(32, 64);
   const symKey = deriveSymmetricKey(sharedSecret, nonce);
   const cipher = chacha20poly1305(symKey, Nonce.chachaBytes(nonce), sealedTo);
@@ -166,7 +164,7 @@ export function computeViewTag(senderSeed: Seed, recipient: Pubkey, nonce: Nonce
 export function checkViewTag(ciphertext: Ciphertext, signingScalar: ViewScalar): ViewTag {
   const content = Ciphertext.asBytes(ciphertext);
   if (content.length < ENCRYPTED_OVERHEAD) throw new SampError("insufficient data");
-  const sharedSecret = ecdhSharedSecret(ViewScalar.get(signingScalar), content.slice(0, 32));
+  const sharedSecret = ecdhSharedSecret(viewScalarToBigInt(signingScalar), content.slice(0, 32));
   return ViewTag.from(deriveViewTagByte(sharedSecret));
 }
 
@@ -216,7 +214,7 @@ function scanCapsules(
   myScalar: ViewScalar,
   nonce: Nonce,
 ): { index: number; contentKey: ContentKey } | null {
-  const shared = ecdhSharedSecret(ViewScalar.get(myScalar), ephPubkey);
+  const shared = ecdhSharedSecret(viewScalarToBigInt(myScalar), ephPubkey);
   const myTag = deriveViewTagByte(shared);
   const kek = deriveKeyWrap(shared, nonce);
   let offset = 0;

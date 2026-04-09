@@ -62,13 +62,7 @@ function toHex(b: Uint8Array): string {
 }
 
 function scalarToBytes(v: ViewScalar): Uint8Array {
-  const buf = new Uint8Array(32);
-  let n = ViewScalar.get(v);
-  for (let i = 0; i < 32; i++) {
-    buf[i] = Number(n & 0xffn);
-    n >>= 8n;
-  }
-  return buf;
+  return ViewScalar.exposeSecret(v);
 }
 
 describe("keypair", () => {
@@ -208,7 +202,7 @@ describe("channel message", () => {
       BlockRef.fromParts(ch.channel_ref[0], ch.channel_ref[1]),
       BlockRef.fromParts(ch.reply_to[0], ch.reply_to[1]),
       BlockRef.fromParts(ch.continues[0], ch.continues[1]),
-      h(ch.body),
+      new TextDecoder().decode(h(ch.body)),
     );
     expect(toHex(remark)).toBe(ch.remark.replace("0x", ""));
   });
