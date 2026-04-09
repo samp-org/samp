@@ -12,27 +12,30 @@ npm install github:samp-org/samp
 
 ```typescript
 import {
-  encodePublic, encodeEncrypted, encrypt, decrypt,
-  computeViewTag, sr25519SigningScalar, decodeRemark,
-  CONTENT_TYPE_ENCRYPTED,
+  ContentType, Nonce, Plaintext, Pubkey, Seed,
+  computeViewTag, decodeRemark, decrypt, encodeEncrypted, encodePublic,
+  encrypt, sr25519SigningScalar,
 } from "@samp-org/samp";
 
-const senderSeed = new Uint8Array(32);  // your sr25519 seed
-const recipientPub = new Uint8Array(32); // recipient's sr25519 public key
+const senderSeed = Seed.fromBytes(new Uint8Array(32));   // your sr25519 seed
+const recipientPub = Pubkey.fromBytes(new Uint8Array(32)); // recipient's sr25519 public key
 
 // Public message
-const remark = encodePublic(recipientPub, new TextEncoder().encode("Hello from TypeScript"));
+const remark = encodePublic(recipientPub, "Hello from TypeScript");
 
 // Encrypted message
-const nonce = crypto.getRandomValues(new Uint8Array(12));
-const ciphertext = encrypt(new TextEncoder().encode("Private message"), recipientPub, nonce, senderSeed);
+const nonce = Nonce.fromBytes(crypto.getRandomValues(new Uint8Array(12)));
+const plaintext = Plaintext.fromBytes(new TextEncoder().encode("Private message"));
+const ciphertext = encrypt(plaintext, recipientPub, nonce, senderSeed);
 const tag = computeViewTag(senderSeed, recipientPub, nonce);
-const encRemark = encodeEncrypted(CONTENT_TYPE_ENCRYPTED, tag, nonce, ciphertext);
+const encRemark = encodeEncrypted(ContentType.Encrypted, tag, nonce, ciphertext);
 
 // Decrypt
+const recipientSeed = Seed.fromBytes(new Uint8Array(32));
 const scalar = sr25519SigningScalar(recipientSeed);
 const parsed = decodeRemark(encRemark);
-const plaintext = decrypt(parsed.content, scalar, parsed.nonce);
+if (parsed.type !== ContentType.Encrypted) throw new Error("expected Encrypted");
+const clear = decrypt(parsed.ciphertext, parsed.nonce, scalar);
 ```
 
 ## API
@@ -72,7 +75,7 @@ const plaintext = decrypt(parsed.content, scalar, parsed.nonce);
 
 ### Constants
 
-`SAMP_VERSION`, `CONTENT_TYPE_PUBLIC`, `CONTENT_TYPE_ENCRYPTED`, `CONTENT_TYPE_THREAD`, `CONTENT_TYPE_CHANNEL_CREATE`, `CONTENT_TYPE_CHANNEL`, `CONTENT_TYPE_GROUP`, `CAPSULE_SIZE`, `ENCRYPTED_OVERHEAD`, `CHANNEL_NAME_MAX`, `CHANNEL_DESC_MAX`
+`SAMP_VERSION`, `ContentType` (enum), `CAPSULE_SIZE`, `CHANNEL_NAME_MAX`, `CHANNEL_DESC_MAX`
 
 ## Test
 
