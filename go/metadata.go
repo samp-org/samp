@@ -352,12 +352,12 @@ func (m *Metadata) StorageLayout(pallet, entry string, fieldPath []string) (Stor
 	return StorageLayout{Offset: offset, Width: prim.Width}, nil
 }
 
-func (m *Metadata) FindCallIndex(pallet, call string) (uint8, uint8, bool) {
+func (m *Metadata) FindCallIndex(pallet, call string) (PalletIdx, CallIdx, bool) {
 	v, ok := m.calls[callKey{pallet, call}]
 	if !ok {
-		return 0, 0, false
+		return PalletIdx{}, CallIdx{}, false
 	}
-	return v[0], v[1], true
+	return PalletIdx{v[0]}, CallIdx{v[1]}, true
 }
 
 func (m *Metadata) typeAt(typeId uint32) (typeShape, error) {

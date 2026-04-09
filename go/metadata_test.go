@@ -61,7 +61,7 @@ func TestPolkadotMetadataFindsSystemRemarkCallIndex(t *testing.T) {
 	require.NoError(t, err)
 	palletIdx, _, ok := metadata.FindCallIndex("System", "remark")
 	require.True(t, ok)
-	require.Equal(t, uint8(0), palletIdx)
+	require.Equal(t, uint8(0), palletIdx.Get())
 }
 
 func TestPolkadotMetadataFindsSystemRemarkWithEventCallIndex(t *testing.T) {

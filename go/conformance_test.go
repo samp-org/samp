@@ -130,6 +130,10 @@ func h12(s string) [12]byte {
 	return out
 }
 
+func seedFromHex(s string) Seed   { return SeedFromBytes(h32(s)) }
+func pkFromHex(s string) Pubkey   { return PubkeyFromBytes(h32(s)) }
+func nonceFromHex(s string) Nonce { return NonceFromBytes(h12(s)) }
+
 func loadVectors(t *testing.T) testVectors {
 	t.Helper()
 	data, err := os.ReadFile("../e2e/test-vectors.json")
@@ -164,63 +168,66 @@ func bytesEqual(a, b []byte) bool {
 
 func TestConformanceKeypairAlice(t *testing.T) {
 	v := loadVectors(t)
-	seed := h32(v.Alice.Seed)
+	seed := seedFromHex(v.Alice.Seed)
 	scalar := Sr25519SigningScalar(seed)
-	assertEqual(t, "alice_scalar", scalar.Encode(nil), h(v.Alice.SigningScalar))
+	assertEqual(t, "alice_scalar", scalar.inner().Encode(nil), h(v.Alice.SigningScalar))
 	pub := PublicFromSeed(seed)
-	assertEqual(t, "alice_pubkey", pub, h(v.Alice.Sr25519Public))
+	pubBytes := pub.Bytes()
+	assertEqual(t, "alice_pubkey", pubBytes[:], h(v.Alice.Sr25519Public))
 }
 
 func TestConformanceKeypairBob(t *testing.T) {
 	v := loadVectors(t)
-	seed := h32(v.Bob.Seed)
+	seed := seedFromHex(v.Bob.Seed)
 	scalar := Sr25519SigningScalar(seed)
-	assertEqual(t, "bob_scalar", scalar.Encode(nil), h(v.Bob.SigningScalar))
+	assertEqual(t, "bob_scalar", scalar.inner().Encode(nil), h(v.Bob.SigningScalar))
 	pub := PublicFromSeed(seed)
-	assertEqual(t, "bob_pubkey", pub, h(v.Bob.Sr25519Public))
+	pubBytes := pub.Bytes()
+	assertEqual(t, "bob_pubkey", pubBytes[:], h(v.Bob.Sr25519Public))
 }
 
 func TestConformancePublicEncode(t *testing.T) {
 	v := loadVectors(t)
-	remark := EncodePublic(h32(v.Bob.Sr25519Public), h(v.PublicMessage.Body))
-	assertEqual(t, "public_remark", remark, h(v.PublicMessage.Remark))
+	remark := EncodePublic(pkFromHex(v.Bob.Sr25519Public), string(h(v.PublicMessage.Body)))
+	assertEqual(t, "public_remark", remark.Bytes(), h(v.PublicMessage.Remark))
 }
 
 func TestConformancePublicDecode(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.PublicMessage.Remark))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.PublicMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ContentType != ContentTypePublic {
-		t.Fatalf("content type: got 0x%02x, want 0x%02x", r.ContentType, ContentTypePublic)
+	pr, ok := r.(PublicRemark)
+	if !ok {
+		t.Fatalf("expected PublicRemark, got %T", r)
 	}
-	assertEqual(t, "body", r.Content, h(v.PublicMessage.Body))
+	assertEqual(t, "body", []byte(pr.Body), h(v.PublicMessage.Body))
 }
 
 func TestConformanceEncryptedEncode(t *testing.T) {
 	v := loadVectors(t)
-	aliceSeed := h32(v.Alice.Seed)
-	bobPub := h(v.Bob.Sr25519Public)
-	nonce := h12(v.EncryptedMessage.Nonce)
-	plaintext := h(v.EncryptedMessage.Plaintext)
+	aliceSeed := seedFromHex(v.Alice.Seed)
+	bobPub := pkFromHex(v.Bob.Sr25519Public)
+	nonce := nonceFromHex(v.EncryptedMessage.Nonce)
+	plaintext := PlaintextFromBytes(h(v.EncryptedMessage.Plaintext))
 
 	content, err := Encrypt(plaintext, bobPub, nonce, aliceSeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "encrypted_content", content, h(v.EncryptedMessage.EncryptedContent))
+	assertEqual(t, "encrypted_content", content.Bytes(), h(v.EncryptedMessage.EncryptedContent))
 
 	vt, err := ComputeViewTag(aliceSeed, bobPub, nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vt != v.EncryptedMessage.ViewTag {
-		t.Fatalf("view_tag: got %d, want %d", vt, v.EncryptedMessage.ViewTag)
+	if vt.Get() != v.EncryptedMessage.ViewTag {
+		t.Fatalf("view_tag: got %d, want %d", vt.Get(), v.EncryptedMessage.ViewTag)
 	}
 
 	remark := EncodeEncrypted(ContentTypeEncrypted, vt, nonce, content)
-	assertEqual(t, "encrypted_remark", remark, h(v.EncryptedMessage.Remark))
+	assertEqual(t, "encrypted_remark", remark.Bytes(), h(v.EncryptedMessage.Remark))
 }
 
 func TestConformanceEncryptedIntermediates(t *testing.T) {
@@ -233,63 +240,66 @@ func TestConformanceEncryptedIntermediates(t *testing.T) {
 
 func TestConformanceRecipientDecrypt(t *testing.T) {
 	v := loadVectors(t)
-	bobScalar := Sr25519SigningScalar(h32(v.Bob.Seed))
-	r, err := DecodeRemark(h(v.EncryptedMessage.Remark))
+	bobScalar := Sr25519SigningScalar(seedFromHex(v.Bob.Seed))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.EncryptedMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plaintext, err := Decrypt(r, bobScalar)
+	er := r.(EncryptedRemark)
+	plaintext, err := Decrypt(er.Ciphertext, er.Nonce, bobScalar)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "plaintext", plaintext, h(v.EncryptedMessage.Plaintext))
+	assertEqual(t, "plaintext", plaintext.Bytes(), h(v.EncryptedMessage.Plaintext))
 }
 
 func TestConformanceSenderSelfDecrypt(t *testing.T) {
 	v := loadVectors(t)
-	aliceSeed := h32(v.Alice.Seed)
-	r, err := DecodeRemark(h(v.EncryptedMessage.Remark))
+	aliceSeed := seedFromHex(v.Alice.Seed)
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.EncryptedMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plaintext, err := DecryptAsSender(r, aliceSeed)
+	er := r.(EncryptedRemark)
+	plaintext, err := DecryptAsSender(er.Ciphertext, er.Nonce, aliceSeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "plaintext", plaintext, h(v.SenderSelfDecrypt.Plaintext))
+	assertEqual(t, "plaintext", plaintext.Bytes(), h(v.SenderSelfDecrypt.Plaintext))
 	assertEqual(t, "unsealed_recipient", h(v.SenderSelfDecrypt.UnsealedRecipient), h(v.Bob.Sr25519Public))
 }
 
 func TestConformanceThreadMessage(t *testing.T) {
 	v := loadVectors(t)
-	aliceSeed := h32(v.Alice.Seed)
-	bobPub := h(v.Bob.Sr25519Public)
-	bobScalar := Sr25519SigningScalar(h32(v.Bob.Seed))
-	nonce := h12(v.ThreadMessage.Nonce)
+	aliceSeed := seedFromHex(v.Alice.Seed)
+	bobPub := pkFromHex(v.Bob.Sr25519Public)
+	bobScalar := Sr25519SigningScalar(seedFromHex(v.Bob.Seed))
+	nonce := nonceFromHex(v.ThreadMessage.Nonce)
 
 	th := v.ThreadMessage.ThreadRef
 	rt := v.ThreadMessage.ReplyTo
 	ct := v.ThreadMessage.Continues
 
 	threadPlaintext := EncodeThreadContent(
-		BlockRef{uint32(th[0]), uint16(th[1])},
-		BlockRef{uint32(rt[0]), uint16(rt[1])},
-		BlockRef{uint32(ct[0]), uint16(ct[1])},
+		BlockRefFromParts(uint32(th[0]), uint16(th[1])),
+		BlockRefFromParts(uint32(rt[0]), uint16(rt[1])),
+		BlockRefFromParts(uint32(ct[0]), uint16(ct[1])),
 		h(v.ThreadMessage.Body),
 	)
-	assertEqual(t, "thread_plaintext", threadPlaintext, h(v.ThreadMessage.ThreadPlaintext))
+	assertEqual(t, "thread_plaintext", threadPlaintext.Bytes(), h(v.ThreadMessage.ThreadPlaintext))
 
 	encrypted, err := Encrypt(threadPlaintext, bobPub, nonce, aliceSeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "thread_encrypted", encrypted, h(v.ThreadMessage.EncryptedContent))
+	assertEqual(t, "thread_encrypted", encrypted.Bytes(), h(v.ThreadMessage.EncryptedContent))
 
-	tr, err := DecodeRemark(h(v.ThreadMessage.Remark))
+	tr, err := DecodeRemark(RemarkBytesFromBytes(h(v.ThreadMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	decrypted, err := Decrypt(tr, bobScalar)
+	er := tr.(ThreadRemark)
+	decrypted, err := Decrypt(er.Ciphertext, er.Nonce, bobScalar)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,13 +307,13 @@ func TestConformanceThreadMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if thread.Block != uint32(th[0]) || thread.Index != uint16(th[1]) {
+	if thread.Block().Get() != uint32(th[0]) || thread.Index().Get() != uint16(th[1]) {
 		t.Fatalf("thread_ref mismatch")
 	}
-	if replyTo.Block != uint32(rt[0]) {
+	if replyTo.Block().Get() != uint32(rt[0]) {
 		t.Fatalf("reply_to mismatch")
 	}
-	if continues.Block != uint32(ct[0]) {
+	if continues.Block().Get() != uint32(ct[0]) {
 		t.Fatalf("continues mismatch")
 	}
 	assertEqual(t, "body", body, h(v.ThreadMessage.Body))
@@ -313,75 +323,74 @@ func TestConformanceChannelMessage(t *testing.T) {
 	v := loadVectors(t)
 	ch := v.ChannelMessage
 	remark := EncodeChannelMsg(
-		BlockRef{uint32(ch.ChannelRef[0]), uint16(ch.ChannelRef[1])},
-		BlockRef{uint32(ch.ReplyTo[0]), uint16(ch.ReplyTo[1])},
-		BlockRef{uint32(ch.Continues[0]), uint16(ch.Continues[1])},
+		BlockRefFromParts(uint32(ch.ChannelRef[0]), uint16(ch.ChannelRef[1])),
+		BlockRefFromParts(uint32(ch.ReplyTo[0]), uint16(ch.ReplyTo[1])),
+		BlockRefFromParts(uint32(ch.Continues[0]), uint16(ch.Continues[1])),
 		h(ch.Body),
 	)
-	assertEqual(t, "channel_remark", remark, h(ch.Remark))
+	assertEqual(t, "channel_remark", remark.Bytes(), h(ch.Remark))
 }
 
 func TestConformanceChannelCreate(t *testing.T) {
 	v := loadVectors(t)
-	remark, err := EncodeChannelCreate(v.ChannelCreate.Name, v.ChannelCreate.Description)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertEqual(t, "create_remark", remark, h(v.ChannelCreate.Remark))
+	name, err := ChannelNameParse(v.ChannelCreate.Name)
+	require.NoError(t, err)
+	desc, err := ChannelDescriptionParse(v.ChannelCreate.Description)
+	require.NoError(t, err)
+	remark := EncodeChannelCreate(name, desc)
+	assertEqual(t, "create_remark", remark.Bytes(), h(v.ChannelCreate.Remark))
 
 	r, err := DecodeRemark(remark)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, desc, err := DecodeChannelCreate(r.Content)
-	if err != nil {
-		t.Fatal(err)
+	cr, ok := r.(ChannelCreateRemark)
+	if !ok {
+		t.Fatalf("expected ChannelCreateRemark, got %T", r)
 	}
-	if name != v.ChannelCreate.Name || desc != v.ChannelCreate.Description {
-		t.Fatalf("create decode: got %q/%q", name, desc)
+	if cr.Name.String() != v.ChannelCreate.Name || cr.Description.String() != v.ChannelCreate.Description {
+		t.Fatalf("create decode: got %q/%q", cr.Name.String(), cr.Description.String())
 	}
 }
 
 func TestConformanceEdgeEmptyBodyPublic(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.EdgeCases.EmptyBodyPublic))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.EdgeCases.EmptyBodyPublic)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ContentType != ContentTypePublic || len(r.Content) != 0 {
-		t.Fatalf("empty body public: type=0x%02x, len=%d", r.ContentType, len(r.Content))
+	pr, ok := r.(PublicRemark)
+	if !ok || len(pr.Body) != 0 {
+		t.Fatalf("empty body public")
 	}
 }
 
 func TestConformanceEdgeMinEncrypted(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.EdgeCases.MinEncrypted))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.EdgeCases.MinEncrypted)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ContentType != ContentTypeEncrypted {
-		t.Fatalf("min encrypted: type=0x%02x", r.ContentType)
+	if _, ok := r.(EncryptedRemark); !ok {
+		t.Fatalf("min encrypted: got %T", r)
 	}
 }
 
 func TestConformanceEdgeEmptyDescCreate(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.EdgeCases.EmptyDescChannelCreate))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.EdgeCases.EmptyDescChannelCreate)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, desc, err := DecodeChannelCreate(r.Content)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if name != "test" || desc != "" {
-		t.Fatalf("empty desc: got %q/%q", name, desc)
+	cr := r.(ChannelCreateRemark)
+	if cr.Name.String() != "test" || cr.Description.String() != "" {
+		t.Fatalf("empty desc: got %q/%q", cr.Name.String(), cr.Description.String())
 	}
 }
 
 func TestConformanceNegativeNonSampVersion(t *testing.T) {
 	v := loadVectors(t)
-	_, err := DecodeRemark(h(v.NegativeCases.NonSampVersion))
+	_, err := DecodeRemark(RemarkBytesFromBytes(h(v.NegativeCases.NonSampVersion)))
 	if err == nil {
 		t.Fatal("expected error for non-SAMP version")
 	}
@@ -389,7 +398,7 @@ func TestConformanceNegativeNonSampVersion(t *testing.T) {
 
 func TestConformanceNegativeReservedType(t *testing.T) {
 	v := loadVectors(t)
-	_, err := DecodeRemark(h(v.NegativeCases.ReservedType))
+	_, err := DecodeRemark(RemarkBytesFromBytes(h(v.NegativeCases.ReservedType)))
 	if err == nil {
 		t.Fatal("expected error for reserved type")
 	}
@@ -397,7 +406,7 @@ func TestConformanceNegativeReservedType(t *testing.T) {
 
 func TestConformanceNegativeTruncatedEncrypted(t *testing.T) {
 	v := loadVectors(t)
-	_, err := DecodeRemark(h(v.NegativeCases.TruncatedEncrypted))
+	_, err := DecodeRemark(RemarkBytesFromBytes(h(v.NegativeCases.TruncatedEncrypted)))
 	if err == nil {
 		t.Fatal("expected error for truncated encrypted")
 	}
@@ -405,12 +414,12 @@ func TestConformanceNegativeTruncatedEncrypted(t *testing.T) {
 
 func TestConformanceGroupRemark(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.GroupMessage.Remark))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.GroupMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ContentType != ContentTypeGroup {
-		t.Fatalf("content type: got 0x%02x, want 0x%02x", r.ContentType, ContentTypeGroup)
+	if _, ok := r.(GroupRemark); !ok {
+		t.Fatalf("expected GroupRemark, got %T", r)
 	}
 }
 
@@ -425,7 +434,8 @@ func TestConformanceGroupMemberList(t *testing.T) {
 		t.Fatalf("member count: got %d, want %d", len(members), len(v.GroupMessage.Members))
 	}
 	for i, m := range members {
-		assertEqual(t, "member_pubkey", m, h(v.GroupMessage.Members[i]))
+		b := m.Bytes()
+		assertEqual(t, "member_pubkey", b[:], h(v.GroupMessage.Members[i]))
 	}
 	if len(body) != 0 {
 		t.Fatalf("expected empty body after member list, got %d bytes", len(body))
@@ -437,104 +447,98 @@ func TestConformanceGroupMemberList(t *testing.T) {
 
 func TestConformanceGroupDecryptByMember(t *testing.T) {
 	v := loadVectors(t)
-	r, err := DecodeRemark(h(v.GroupMessage.Remark))
+	r, err := DecodeRemark(RemarkBytesFromBytes(h(v.GroupMessage.Remark)))
 	if err != nil {
 		t.Fatal(err)
 	}
+	gr := r.(GroupRemark)
 
-	bobScalar := Sr25519SigningScalar(h32(v.Bob.Seed))
-	plaintext, err := DecryptFromGroup(r.Content, bobScalar.Encode(nil), r.Nonce[:], len(v.GroupMessage.Members))
+	bobScalar := Sr25519SigningScalar(seedFromHex(v.Bob.Seed))
+	plaintext, err := DecryptFromGroup(gr.Content, bobScalar, gr.Nonce, len(v.GroupMessage.Members))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "root_plaintext", plaintext, h(v.GroupMessage.RootPlaintext))
+	assertEqual(t, "root_plaintext", plaintext.Bytes(), h(v.GroupMessage.RootPlaintext))
 
-	plaintext2, err := DecryptFromGroup(r.Content, bobScalar.Encode(nil), r.Nonce[:], 0)
+	plaintext2, err := DecryptFromGroup(gr.Content, bobScalar, gr.Nonce, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEqual(t, "root_plaintext_trial", plaintext2, h(v.GroupMessage.RootPlaintext))
+	assertEqual(t, "root_plaintext_trial", plaintext2.Bytes(), h(v.GroupMessage.RootPlaintext))
 }
 
 func TestEncodeChannelCreateNameTooLongReturnsError(t *testing.T) {
-	name := strings.Repeat("x", 33)
-	_, err := EncodeChannelCreate(name, "desc")
+	_, err := ChannelNameParse(strings.Repeat("x", 33))
 	require.Error(t, err)
 }
 
 func TestEncodeChannelCreateEmptyNameReturnsError(t *testing.T) {
-	_, err := EncodeChannelCreate("", "desc")
+	_, err := ChannelNameParse("")
 	require.Error(t, err)
 }
 
 func TestEncodeChannelCreateDescTooLongReturnsError(t *testing.T) {
-	desc := strings.Repeat("x", 129)
-	_, err := EncodeChannelCreate("valid", desc)
+	_, err := ChannelDescriptionParse(strings.Repeat("x", 129))
 	require.Error(t, err)
 }
 
 func TestGroupRegularMessageRoundtrip(t *testing.T) {
-	alicePub := PublicFromSeed(h32("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-	bobPub := PublicFromSeed(h32("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
-	members := [][]byte{alicePub, bobPub}
+	alicePub := PublicFromSeed(seedFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	bobPub := PublicFromSeed(seedFromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+	members := []Pubkey{alicePub, bobPub}
 
-	nonce := make([]byte, 12)
-	_, err := rand.Read(nonce)
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
 	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
 
-	groupRef := BlockRef{Block: 100, Index: 1}
-	zeroRef := BlockRef{}
-	plaintext := EncodeThreadContent(groupRef, zeroRef, zeroRef, []byte("non-root msg"))
+	groupRef := BlockRefFromParts(100, 1)
+	plaintext := EncodeThreadContent(groupRef, BlockRef{}, BlockRef{}, []byte("non-root msg"))
 
-	senderSeed := h("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	senderSeed := seedFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	ephPubkey, capsules, ciphertext, err := EncryptForGroup(plaintext, members, nonce, senderSeed)
 	require.NoError(t, err)
 
-	var ephArr [32]byte
-	copy(ephArr[:], ephPubkey)
-	var nonceArr [12]byte
-	copy(nonceArr[:], nonce)
-	remark := EncodeGroup(nonceArr, ephArr, capsules, ciphertext)
+	remark := EncodeGroup(nonce, ephPubkey, capsules, ciphertext)
 
 	r, err := DecodeRemark(remark)
 	require.NoError(t, err)
-	require.Equal(t, ContentTypeGroup, r.ContentType)
+	gr, ok := r.(GroupRemark)
+	require.True(t, ok)
 
-	bobScalar := Sr25519SigningScalar(h32("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
-	decrypted, err := DecryptFromGroup(r.Content, bobScalar.Encode(nil), r.Nonce[:], len(members))
+	bobScalar := Sr25519SigningScalar(seedFromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+	decrypted, err := DecryptFromGroup(gr.Content, bobScalar, gr.Nonce, len(members))
 	require.NoError(t, err)
 
 	thread, _, _, body, err := DecodeThreadContent(decrypted)
 	require.NoError(t, err)
-	require.Equal(t, uint32(100), thread.Block)
-	require.Equal(t, uint16(1), thread.Index)
+	require.Equal(t, uint32(100), thread.Block().Get())
+	require.Equal(t, uint16(1), thread.Index().Get())
 	require.Equal(t, []byte("non-root msg"), body)
 }
 
 func TestGroupNonMemberRejected(t *testing.T) {
-	alicePub := PublicFromSeed(h32("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-	bobPub := PublicFromSeed(h32("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
-	members := [][]byte{alicePub, bobPub}
+	alicePub := PublicFromSeed(seedFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	bobPub := PublicFromSeed(seedFromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+	members := []Pubkey{alicePub, bobPub}
 
-	nonce := make([]byte, 12)
-	_, err := rand.Read(nonce)
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
 	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
 
-	plaintext := EncodeThreadContent(BlockRef{Block: 100, Index: 1}, BlockRef{}, BlockRef{}, []byte("secret"))
-	senderSeed := h("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	plaintext := EncodeThreadContent(BlockRefFromParts(100, 1), BlockRef{}, BlockRef{}, []byte("secret"))
+	senderSeed := seedFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	ephPubkey, capsules, ciphertext, err := EncryptForGroup(plaintext, members, nonce, senderSeed)
 	require.NoError(t, err)
 
-	var ephArr [32]byte
-	copy(ephArr[:], ephPubkey)
-	var nonceArr [12]byte
-	copy(nonceArr[:], nonce)
-	remark := EncodeGroup(nonceArr, ephArr, capsules, ciphertext)
+	remark := EncodeGroup(nonce, ephPubkey, capsules, ciphertext)
 
 	r, err := DecodeRemark(remark)
 	require.NoError(t, err)
+	gr := r.(GroupRemark)
 
-	charlieScalar := Sr25519SigningScalar(h32("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"))
-	_, err = DecryptFromGroup(r.Content, charlieScalar.Encode(nil), r.Nonce[:], len(members))
+	charlieScalar := Sr25519SigningScalar(seedFromHex("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"))
+	_, err = DecryptFromGroup(gr.Content, charlieScalar, gr.Nonce, len(members))
 	require.Error(t, err)
 }

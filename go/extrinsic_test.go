@@ -33,13 +33,13 @@ type extrinsicVectors struct {
 	Cases []extrinsicCase `json:"cases"`
 }
 
-var alicePublicKey = mustHex32("d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d")
-var fixedSignature = func() [64]byte {
+var alicePublicKey = PubkeyFromBytes(mustHex32("d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d"))
+var fixedSignature = func() Signature {
 	var s [64]byte
 	for i := range s {
 		s[i] = 0xab
 	}
-	return s
+	return SignatureFromBytes(s)
 }()
 
 func mustHex32(s string) [32]byte {
@@ -62,7 +62,7 @@ func mustHex64(s string) [64]byte {
 	return out
 }
 
-func fixedSigner(_ []byte) ([64]byte, error) {
+func fixedSigner(_ []byte) (Signature, error) {
 	return fixedSignature, nil
 }
 
@@ -72,20 +72,20 @@ func makeChainParams() ChainParams {
 		genesis[i] = 0x11
 	}
 	return ChainParams{
-		GenesisHash: genesis,
-		SpecVersion: 100,
-		TxVersion:   1,
+		GenesisHash: GenesisHashFromBytes(genesis),
+		SpecVersion: SpecVersionFrom(100),
+		TxVersion:   TxVersionFrom(1),
 	}
 }
 
-func buildRemarkArgs(remark []byte) []byte {
+func buildRemarkArgs(remark []byte) CallArgs {
 	out := EncodeCompact(uint64(len(remark)))
-	return append(out, remark...)
+	return CallArgsFromBytes(append(out, remark...))
 }
 
 func TestBuildSignedExtrinsicRoundTripsThroughExtract(t *testing.T) {
 	args := buildRemarkArgs([]byte("hello bob"))
-	ext, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, fixedSigner, 0, makeChainParams())
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
 	require.NoError(t, err)
 
 	signer, ok := ExtractSigner(ext)
@@ -94,27 +94,28 @@ func TestBuildSignedExtrinsicRoundTripsThroughExtract(t *testing.T) {
 
 	extracted, ok := ExtractCall(ext)
 	require.True(t, ok)
-	require.Equal(t, uint8(0), extracted.Pallet)
-	require.Equal(t, uint8(7), extracted.Call)
-	require.Equal(t, args, extracted.Args)
+	require.Equal(t, uint8(0), extracted.Pallet.Get())
+	require.Equal(t, uint8(7), extracted.Call.Get())
+	require.Equal(t, args.Bytes(), extracted.Args.Bytes())
 }
 
 func TestBuildSignedExtrinsicStartsWithCompactLengthPrefix(t *testing.T) {
 	args := buildRemarkArgs([]byte("x"))
-	ext, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, fixedSigner, 0, makeChainParams())
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
 	require.NoError(t, err)
-	declaredLen, prefixLen, err := DecodeCompact(ext)
+	declaredLen, prefixLen, err := DecodeCompact(ext.Bytes())
 	require.NoError(t, err)
-	require.Equal(t, len(ext), prefixLen+int(declaredLen))
+	require.Equal(t, ext.Len(), prefixLen+int(declaredLen))
 }
 
 func TestBuildSignedExtrinsicUsesImmortalEraByte(t *testing.T) {
 	args := buildRemarkArgs([]byte("x"))
-	ext, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, fixedSigner, 0, makeChainParams())
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
 	require.NoError(t, err)
-	_, prefixLen, err := DecodeCompact(ext)
+	b := ext.Bytes()
+	_, prefixLen, err := DecodeCompact(b)
 	require.NoError(t, err)
-	payload := ext[prefixLen:]
+	payload := b[prefixLen:]
 	eraOffset := 1 + 1 + 32 + 1 + 64
 	require.Equal(t, byte(0x00), payload[eraOffset])
 }
@@ -122,27 +123,27 @@ func TestBuildSignedExtrinsicUsesImmortalEraByte(t *testing.T) {
 func TestBuildSignedExtrinsicDifferentNoncesProduceDifferentBytes(t *testing.T) {
 	args := buildRemarkArgs([]byte("x"))
 	cp := makeChainParams()
-	a, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, fixedSigner, 0, cp)
+	a, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), cp)
 	require.NoError(t, err)
-	b, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, fixedSigner, 1, cp)
+	b, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(1), cp)
 	require.NoError(t, err)
-	require.NotEqual(t, a, b)
+	require.NotEqual(t, a.Bytes(), b.Bytes())
 }
 
 func TestExtractSignerReturnsFalseForUnsignedExtrinsic(t *testing.T) {
-	unsigned := []byte{0x10, 0x04, 0x03, 0x00, 0x00}
+	unsigned := ExtrinsicBytesFromBytes([]byte{0x10, 0x04, 0x03, 0x00, 0x00})
 	_, ok := ExtractSigner(unsigned)
 	require.False(t, ok)
 }
 
 func TestExtractCallReturnsFalseForUnsignedExtrinsic(t *testing.T) {
-	unsigned := []byte{0x10, 0x04, 0x03, 0x00, 0x00}
+	unsigned := ExtrinsicBytesFromBytes([]byte{0x10, 0x04, 0x03, 0x00, 0x00})
 	_, ok := ExtractCall(unsigned)
 	require.False(t, ok)
 }
 
 func TestExtractSignerReturnsFalseForEmptyInput(t *testing.T) {
-	_, ok := ExtractSigner([]byte{})
+	_, ok := ExtractSigner(ExtrinsicBytesFromBytes([]byte{}))
 	require.False(t, ok)
 }
 
@@ -153,23 +154,23 @@ func TestBuildSignedExtrinsicPayloadAbove256BytesUsesBlake2Hash(t *testing.T) {
 	}
 	args := buildRemarkArgs(bigRemark)
 	var captured []int
-	capturingSigner := func(msg []byte) ([64]byte, error) {
+	capturingSigner := func(msg []byte) (Signature, error) {
 		captured = append(captured, len(msg))
 		return fixedSignature, nil
 	}
-	ext, err := BuildSignedExtrinsic(0, 7, args, alicePublicKey, capturingSigner, 0, makeChainParams())
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, capturingSigner, ExtrinsicNonceFrom(0), makeChainParams())
 	require.NoError(t, err)
 	require.Equal(t, []int{32}, captured)
 	extracted, ok := ExtractCall(ext)
 	require.True(t, ok)
-	require.Equal(t, args, extracted.Args)
+	require.Equal(t, args.Bytes(), extracted.Args.Bytes())
 }
 
 func TestSigningClosureErrorPropagates(t *testing.T) {
-	failingSigner := func(_ []byte) ([64]byte, error) {
-		return [64]byte{}, errors.New("hardware wallet disconnected")
+	failingSigner := func(_ []byte) (Signature, error) {
+		return Signature{}, errors.New("hardware wallet disconnected")
 	}
-	_, err := BuildSignedExtrinsic(0, 7, []byte{}, alicePublicKey, failingSigner, 0, makeChainParams())
+	_, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), CallArgsFromBytes([]byte{}), alicePublicKey, failingSigner, ExtrinsicNonceFrom(0), makeChainParams())
 	require.ErrorContains(t, err, "hardware wallet disconnected")
 }
 
@@ -181,23 +182,22 @@ func TestMatchesE2EExtrinsicVectorsFixture(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &vectors))
 
 	for _, c := range vectors.Cases {
-		publicKey := mustHex32(stripHex(c.PublicKey))
-		signature := mustHex64(stripHex(c.FixedSignature))
-		callArgs := unhexBytes(t, c.CallArgs)
-		genesis := mustHex32(stripHex(c.ChainParams.GenesisHash))
+		publicKey := PubkeyFromBytes(mustHex32(stripHex(c.PublicKey)))
+		signature := SignatureFromBytes(mustHex64(stripHex(c.FixedSignature)))
+		callArgs := CallArgsFromBytes(unhexBytes(t, c.CallArgs))
 		chain := ChainParams{
-			GenesisHash: genesis,
-			SpecVersion: c.ChainParams.SpecVersion,
-			TxVersion:   c.ChainParams.TxVersion,
+			GenesisHash: GenesisHashFromBytes(mustHex32(stripHex(c.ChainParams.GenesisHash))),
+			SpecVersion: SpecVersionFrom(c.ChainParams.SpecVersion),
+			TxVersion:   TxVersionFrom(c.ChainParams.TxVersion),
 		}
 
-		signer := func(_ []byte) ([64]byte, error) {
+		signer := func(_ []byte) (Signature, error) {
 			return signature, nil
 		}
 
-		built, err := BuildSignedExtrinsic(c.PalletIdx, c.CallIdx, callArgs, publicKey, signer, c.Nonce, chain)
+		built, err := BuildSignedExtrinsic(PalletIdxFrom(c.PalletIdx), CallIdxFrom(c.CallIdx), callArgs, publicKey, signer, ExtrinsicNonceFrom(c.Nonce), chain)
 		require.NoError(t, err)
-		require.Equal(t, unhexBytes(t, c.ExpectedExtrinsic), built, "case %s", c.Label)
+		require.Equal(t, unhexBytes(t, c.ExpectedExtrinsic), built.Bytes(), "case %s", c.Label)
 	}
 }
 
