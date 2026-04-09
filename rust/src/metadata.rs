@@ -179,6 +179,19 @@ impl StorageLayout {
 }
 
 impl ErrorTable {
+    pub fn from_entries<I>(entries: I) -> Self
+    where
+        I: IntoIterator<Item = ((u8, u8), ErrorEntry)>,
+    {
+        Self {
+            by_idx: entries.into_iter().collect(),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = ((u8, u8), &ErrorEntry)> + '_ {
+        self.by_idx.iter().map(|(&k, v)| (k, v))
+    }
+
     pub fn humanize(&self, pallet_idx: u8, err_idx: u8) -> Option<String> {
         let e = self.by_idx.get(&(pallet_idx, err_idx))?;
         if e.doc.is_empty() {
