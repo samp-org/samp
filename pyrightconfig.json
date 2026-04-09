@@ -1,6 +1,8 @@
 {
     "include": ["python/samp", "python/tests"],
     "extraPaths": ["python"],
+    "venvPath": ".",
+    "venv": ".venv",
     "exclude": [
         "**/node_modules",
         "**/__pycache__",

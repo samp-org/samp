@@ -29,7 +29,7 @@ from samp import (
 from samp.encryption import compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group
 from samp.wire import (
     ContentType,
-    decode_channel_create,
+    ThreadRemark,
     decode_thread_content,
     encode_channel_create,
     encode_channel_msg,
@@ -169,8 +169,6 @@ def test_thread_message() -> None:
     assert encrypted == h(v["thread_message"]["encrypted_content"])
 
     parsed = decode_remark(h(v["thread_message"]["remark"]))
-    from samp.wire import ThreadRemark
-
     assert isinstance(parsed, ThreadRemark)
     decrypted = decrypt(parsed.ciphertext, parsed.nonce, bob_scalar)
     thread, reply_to, _continues, body = decode_thread_content(decrypted)
