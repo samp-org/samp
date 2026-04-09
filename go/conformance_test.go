@@ -170,7 +170,8 @@ func TestConformanceKeypairAlice(t *testing.T) {
 	v := loadVectors(t)
 	seed := seedFromHex(v.Alice.Seed)
 	scalar := Sr25519SigningScalar(seed)
-	assertEqual(t, "alice_scalar", scalar.inner().Encode(nil), h(v.Alice.SigningScalar))
+	scalarBytes := scalar.ExposeSecret()
+	assertEqual(t, "alice_scalar", scalarBytes[:], h(v.Alice.SigningScalar))
 	pub := PublicFromSeed(seed)
 	pubBytes := pub.Bytes()
 	assertEqual(t, "alice_pubkey", pubBytes[:], h(v.Alice.Sr25519Public))
@@ -180,7 +181,8 @@ func TestConformanceKeypairBob(t *testing.T) {
 	v := loadVectors(t)
 	seed := seedFromHex(v.Bob.Seed)
 	scalar := Sr25519SigningScalar(seed)
-	assertEqual(t, "bob_scalar", scalar.inner().Encode(nil), h(v.Bob.SigningScalar))
+	scalarBytes := scalar.ExposeSecret()
+	assertEqual(t, "bob_scalar", scalarBytes[:], h(v.Bob.SigningScalar))
 	pub := PublicFromSeed(seed)
 	pubBytes := pub.Bytes()
 	assertEqual(t, "bob_pubkey", pubBytes[:], h(v.Bob.Sr25519Public))
@@ -326,7 +328,7 @@ func TestConformanceChannelMessage(t *testing.T) {
 		BlockRefFromParts(uint32(ch.ChannelRef[0]), uint16(ch.ChannelRef[1])),
 		BlockRefFromParts(uint32(ch.ReplyTo[0]), uint16(ch.ReplyTo[1])),
 		BlockRefFromParts(uint32(ch.Continues[0]), uint16(ch.Continues[1])),
-		h(ch.Body),
+		string(h(ch.Body)),
 	)
 	assertEqual(t, "channel_remark", remark.Bytes(), h(ch.Remark))
 }

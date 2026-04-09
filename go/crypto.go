@@ -19,9 +19,18 @@ var (
 	ErrInvalidPoint     = errors.New("samp: invalid ristretto255 point")
 )
 
-type ViewScalar struct{ s *ristretto255.Scalar }
-
-func (v ViewScalar) inner() *ristretto255.Scalar { return v.s }
+// WHY: the single crypto boundary that turns a 32-byte ViewScalar into a
+// ristretto255.Scalar. Every decrypt path funnels through here.
+func viewScalarToRistretto(v ViewScalar) *ristretto255.Scalar {
+	raw := v.b
+	s := ristretto255.NewScalar()
+	if err := s.Decode(raw[:]); err == nil {
+		return s
+	}
+	var wide [64]byte
+	copy(wide[:32], raw[:])
+	return new(ristretto255.Scalar).FromUniformBytes(wide[:])
+}
 
 func Sr25519SigningScalar(seed Seed) ViewScalar {
 	raw := seed.b
@@ -34,9 +43,11 @@ func Sr25519SigningScalar(seed Seed) ViewScalar {
 	if err := s.Decode(h[:32]); err != nil {
 		var wide [64]byte
 		copy(wide[:32], h[:32])
-		return ViewScalar{new(ristretto255.Scalar).FromUniformBytes(wide[:])}
+		s = new(ristretto255.Scalar).FromUniformBytes(wide[:])
 	}
-	return ViewScalar{s}
+	var out [32]byte
+	copy(out[:], s.Encode(nil))
+	return ViewScalar{out}
 }
 
 func divideScalarByCofactor(s []byte) {
@@ -50,8 +61,8 @@ func divideScalarByCofactor(s []byte) {
 }
 
 func PublicFromSeed(seed Seed) Pubkey {
-	scalar := Sr25519SigningScalar(seed)
-	pub := new(ristretto255.Element).ScalarBaseMult(scalar.s)
+	vs := Sr25519SigningScalar(seed)
+	pub := new(ristretto255.Element).ScalarBaseMult(viewScalarToRistretto(vs))
 	var out [32]byte
 	copy(out[:], pub.Encode(nil))
 	return Pubkey{out}
@@ -137,7 +148,7 @@ func Decrypt(ct Ciphertext, nonce Nonce, signingScalar ViewScalar) (Plaintext, e
 		return Plaintext{}, ErrInsufficientData
 	}
 	content := ct.b
-	sharedSecret, err := ecdhSharedSecret(signingScalar.s, content[:32])
+	sharedSecret, err := ecdhSharedSecret(viewScalarToRistretto(signingScalar), content[:32])
 	if err != nil {
 		return Plaintext{}, err
 	}
@@ -187,7 +198,7 @@ func CheckViewTag(ct Ciphertext, signingScalar ViewScalar) (ViewTag, error) {
 	if len(ct.b) < EncryptedOverhead {
 		return ViewTag{}, ErrInsufficientData
 	}
-	sharedSecret, err := ecdhSharedSecret(signingScalar.s, ct.b[:32])
+	sharedSecret, err := ecdhSharedSecret(viewScalarToRistretto(signingScalar), ct.b[:32])
 	if err != nil {
 		return ViewTag{}, err
 	}
@@ -251,7 +262,7 @@ func buildCapsules(contentKey ContentKey, members []Pubkey, ephScalar *ristretto
 
 func scanCapsules(data []byte, ephPubkey EphPubkey, myScalar ViewScalar, nonce Nonce) (int, ContentKey, bool) {
 	epb := ephPubkey.b
-	shared, err := ecdhSharedSecret(myScalar.s, epb[:])
+	shared, err := ecdhSharedSecret(viewScalarToRistretto(myScalar), epb[:])
 	if err != nil {
 		return 0, ContentKey{}, false
 	}

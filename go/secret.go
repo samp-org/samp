@@ -15,3 +15,9 @@ type ContentKey struct{ b [32]byte }
 func ContentKeyFromBytes(b [32]byte) ContentKey { return ContentKey{b} }
 func (c ContentKey) ExposeSecret() [32]byte     { return c.b }
 func (c ContentKey) String() string             { return "ContentKey([REDACTED])" }
+
+type ViewScalar struct{ b [32]byte }
+
+func ViewScalarFromBytes(b [32]byte) ViewScalar { return ViewScalar{b} }
+func (v ViewScalar) ExposeSecret() [32]byte     { return v.b }
+func (v ViewScalar) String() string             { return "ViewScalar([REDACTED])" }

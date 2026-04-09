@@ -115,7 +115,7 @@ type ChannelRemark struct {
 	ChannelRef BlockRef
 	ReplyTo    BlockRef
 	Continues  BlockRef
-	Body       []byte
+	Body       string
 }
 
 func (r ChannelRemark) ContentType() ContentType { return ContentTypeChannel }
@@ -154,13 +154,14 @@ func EncodeEncrypted(contentType ContentType, viewTag ViewTag, nonce Nonce, ciph
 	return RemarkBytes{out}
 }
 
-func EncodeChannelMsg(channelRef, replyTo, continues BlockRef, body []byte) RemarkBytes {
-	out := make([]byte, 19, 19+len(body))
+func EncodeChannelMsg(channelRef, replyTo, continues BlockRef, body string) RemarkBytes {
+	bodyBytes := []byte(body)
+	out := make([]byte, 19, 19+len(bodyBytes))
 	out[0] = ContentTypeChannel.Byte()
 	encodeBlockRef(out[1:7], channelRef)
 	encodeBlockRef(out[7:13], replyTo)
 	encodeBlockRef(out[13:19], continues)
-	out = append(out, body...)
+	out = append(out, bodyBytes...)
 	return RemarkBytes{out}
 }
 
@@ -240,11 +241,15 @@ func DecodeRemark(remark RemarkBytes) (Remark, error) {
 		if len(data) < 19 {
 			return nil, ErrInsufficientData
 		}
+		body := data[19:]
+		if !utf8.Valid(body) {
+			return nil, ErrInvalidUTF8
+		}
 		return ChannelRemark{
 			ChannelRef: decodeBlockRef(data[1:7]),
 			ReplyTo:    decodeBlockRef(data[7:13]),
 			Continues:  decodeBlockRef(data[13:19]),
-			Body:       data[19:],
+			Body:       string(body),
 		}, nil
 
 	case 0x05:
