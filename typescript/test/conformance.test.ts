@@ -312,6 +312,36 @@ describe("edge cases", () => {
   });
 });
 
+describe("content type byte values pinned", () => {
+  it("enum values match spec", () => {
+    expect(ContentType.Public as number).toBe(0x10);
+    expect(ContentType.Encrypted as number).toBe(0x11);
+    expect(ContentType.Thread as number).toBe(0x12);
+    expect(ContentType.ChannelCreate as number).toBe(0x13);
+    expect(ContentType.Channel as number).toBe(0x14);
+    expect(ContentType.Group as number).toBe(0x15);
+  });
+});
+
+describe("typed wrappers round-trip", () => {
+  it("pubkey/nonce idempotent", () => {
+    const bobRaw = h(vectors.bob.sr25519_public);
+    expect(toHex(Pubkey.fromBytes(bobRaw))).toBe(toHex(bobRaw));
+    const nonceRaw = h(vectors.encrypted_message.nonce);
+    expect(toHex(Nonce.fromBytes(nonceRaw))).toBe(toHex(nonceRaw));
+  });
+
+  it("rejects wrong-length pubkey", () => {
+    expect(() => Pubkey.fromBytes(new Uint8Array(31))).toThrow(SampError);
+  });
+});
+
+describe("block ref display", () => {
+  it("formats as #N.I", () => {
+    expect(BlockRef.fromParts(42, 7).toString()).toBe("#42.7");
+  });
+});
+
 describe("negative cases", () => {
   it("non-SAMP version", () => {
     expect(() => decodeRemark(RemarkBytes.fromBytes(h(vectors.negative_cases.non_samp_version)))).toThrow();
