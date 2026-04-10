@@ -13,16 +13,22 @@ from samp.types import (
     Nonce,
     Plaintext,
     Pubkey,
+    Signature,
     ViewTag,
     capsules_from_bytes,
     ciphertext_from_bytes,
     eph_pubkey_from_bytes,
     plaintext_from_bytes,
     pubkey_from_bytes,
+    signature_from_bytes,
     view_tag_from_int,
 )
 
 ENCRYPTED_OVERHEAD = 80
+
+
+def sr25519_sign(seed: Seed, message: bytes) -> Signature:
+    return signature_from_bytes(samp_crypto.sr25519_sign(seed.expose_secret(), message))
 
 
 def sr25519_signing_scalar(seed: Seed) -> ViewScalar:

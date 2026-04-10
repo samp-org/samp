@@ -11,6 +11,7 @@ from samp.encryption import (
     encrypt_for_group,
     public_from_seed,
     scan_capsules,
+    sr25519_sign,
     sr25519_signing_scalar,
     unseal_recipient,
 )
@@ -156,6 +157,7 @@ __all__ = [
     "decode_group_members",
     "encode_thread_content",
     "encode_channel_content",
+    "sr25519_sign",
     "sr25519_signing_scalar",
     "public_from_seed",
     "encrypt",
