@@ -6,7 +6,8 @@ import { RistrettoPoint } from "@noble/curves/ed25519";
 import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/abstract/utils";
 import { SampError } from "./error.js";
 import { ContentKey, Seed, ViewScalar } from "./secret.js";
-import { Capsules, Ciphertext, EphPubkey, Nonce, Plaintext, Pubkey, ViewTag } from "./types.js";
+import { Capsules, Ciphertext, EphPubkey, Nonce, Plaintext, Pubkey, Signature, ViewTag } from "./types.js";
+import { sr25519KeypairFromSeed, sr25519Sign as wasmSr25519Sign } from "@polkadot/wasm-crypto";
 
 export const ENCRYPTED_OVERHEAD = 80;
 const CAPSULE_SIZE = 33;
@@ -78,6 +79,12 @@ function deriveKeyWrap(sharedSecret: Uint8Array, nonce: Nonce): Uint8Array {
 // bigint scalar the ristretto curve operations expect.
 function viewScalarToBigInt(vs: ViewScalar): bigint {
   return mod(bytesToNumberLE(ViewScalar.exposeSecret(vs)), CURVE_ORDER);
+}
+
+export function sr25519Sign(seed: Seed, message: Uint8Array): Signature {
+  const kp = sr25519KeypairFromSeed(Seed.exposeSecret(seed));
+  const sig = wasmSr25519Sign(kp.slice(64, 96), kp.slice(0, 64), message);
+  return Signature.fromBytes(sig);
 }
 
 export function sr25519SigningScalar(seed: Seed): ViewScalar {

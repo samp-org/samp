@@ -55,6 +55,7 @@ export {
 export type { Remark } from "./wire.js";
 export {
   ENCRYPTED_OVERHEAD,
+  sr25519Sign,
   sr25519SigningScalar,
   publicFromSeed,
   encrypt,

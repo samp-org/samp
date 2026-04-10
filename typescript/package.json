@@ -13,16 +13,19 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@noble/curves": "^1.8.0",
     "@noble/ciphers": "^1.2.0",
-    "@noble/hashes": "^1.7.0"
+    "@noble/curves": "^1.8.0",
+    "@noble/hashes": "^1.7.0",
+    "@polkadot/wasm-crypto": "^7.5.4"
   },
   "devDependencies": {
     "tsup": "^8.4.0",
