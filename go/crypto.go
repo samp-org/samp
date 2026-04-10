@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 
+	schnorrkel "github.com/ChainSafe/go-schnorrkel"
 	"github.com/gtank/ristretto255"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
@@ -30,6 +31,21 @@ func viewScalarToRistretto(v ViewScalar) *ristretto255.Scalar {
 	var wide [64]byte
 	copy(wide[:32], raw[:])
 	return new(ristretto255.Scalar).FromUniformBytes(wide[:])
+}
+
+func Sr25519Sign(seed Seed, message []byte) (Signature, error) {
+	msk, err := schnorrkel.NewMiniSecretKeyFromRaw(seed.b)
+	if err != nil {
+		return Signature{}, err
+	}
+	sk := msk.ExpandEd25519()
+	ctx := schnorrkel.NewSigningContext([]byte("substrate"), message)
+	sig, err := sk.Sign(ctx)
+	if err != nil {
+		return Signature{}, err
+	}
+	encoded := sig.Encode()
+	return Signature{encoded}, nil
 }
 
 func Sr25519SigningScalar(seed Seed) ViewScalar {
