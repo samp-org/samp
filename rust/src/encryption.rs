@@ -9,6 +9,7 @@ use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use hkdf::Hkdf;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
+use schnorrkel::signing_context;
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -26,6 +27,13 @@ pub const ENCRYPTED_OVERHEAD: usize = 80;
 // ristretto255 scalar. Every decrypt path funnels through here.
 pub(crate) fn view_scalar_to_ristretto(vs: &ViewScalar) -> Scalar {
     Scalar::from_bytes_mod_order(*vs.expose_secret())
+}
+
+pub fn sr25519_sign(seed: &Seed, message: &[u8]) -> crate::types::Signature {
+    let msk = MiniSecretKey::from_bytes(seed.expose_secret()).expect("valid 32-byte seed");
+    let kp = msk.expand_to_keypair(ExpansionMode::Ed25519);
+    let sig = kp.sign(signing_context(b"substrate").bytes(message));
+    crate::types::Signature::from_bytes(sig.to_bytes())
 }
 
 pub fn sr25519_signing_scalar(seed: &Seed) -> ViewScalar {
