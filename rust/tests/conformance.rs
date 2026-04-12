@@ -482,3 +482,18 @@ fn conformance_block_ref_display_format() {
 fn conformance_channel_name_parse_empty_rejected() {
     assert!(ChannelName::parse("").is_err());
 }
+
+#[test]
+fn sr25519_sign_returns_64_bytes() {
+    let seed = Seed::from_bytes([0xab; 32]);
+    let sig = samp::sr25519_sign(&seed, b"test message");
+    assert_eq!(sig.as_bytes().len(), 64);
+}
+
+#[test]
+fn sr25519_sign_differs_for_different_messages() {
+    let seed = Seed::from_bytes([0xab; 32]);
+    let a = samp::sr25519_sign(&seed, b"message one");
+    let b = samp::sr25519_sign(&seed, b"message two");
+    assert_ne!(a.as_bytes(), b.as_bytes());
+}
