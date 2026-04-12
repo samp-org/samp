@@ -27,7 +27,7 @@ from samp import encode_public, encode_encrypted, encrypt, compute_view_tag, sr2
 import os
 
 # Public message
-remark = encode_public(recipient_pubkey, b"Hello from SAMP")
+remark = encode_public(recipient_pubkey, "Hello from SAMP")
 
 # Encrypted message
 nonce = os.urandom(12)  # 12-byte encryption nonce (not the Substrate tx nonce)
@@ -149,7 +149,7 @@ Four implementations. Same API surface. Same byte output. All test against share
 
 | Language | Path | Tests |
 |----------|------|-------|
-| Rust | [`rust/`](rust/) | `cargo test` (208 tests) |
+| Rust | [`rust/`](rust/) | `cargo test` (216 tests) |
 | Python | [`python/`](python/) | `pytest tests/` (139 tests) |
 | Go | [`go/`](go/) | `go test ./...` |
 | TypeScript | [`typescript/`](typescript/) | `npm test` (120 tests) |
