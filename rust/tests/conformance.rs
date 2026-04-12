@@ -497,3 +497,63 @@ fn sr25519_sign_differs_for_different_messages() {
     let b = samp::sr25519_sign(&seed, b"message two");
     assert_ne!(a.as_bytes(), b.as_bytes());
 }
+
+// --- ss58 tests ---
+
+#[test]
+fn ss58_encode_decode_round_trip_prefix_42() {
+    let pk = Pubkey::from_bytes(h32(
+        "d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+    ));
+    let prefix = Ss58Prefix::new(42).unwrap();
+    let addr = Ss58Address::encode(&pk, prefix);
+    let decoded = Ss58Address::parse(addr.as_str()).unwrap();
+    assert_eq!(decoded.pubkey().as_bytes(), pk.as_bytes());
+    assert_eq!(decoded.prefix().get(), 42);
+}
+
+#[test]
+fn ss58_encode_decode_round_trip_prefix_0() {
+    let pk = Pubkey::from_bytes(h32(
+        "d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+    ));
+    let prefix = Ss58Prefix::new(0).unwrap();
+    let addr = Ss58Address::encode(&pk, prefix);
+    let decoded = Ss58Address::parse(addr.as_str()).unwrap();
+    assert_eq!(decoded.pubkey().as_bytes(), pk.as_bytes());
+    assert_eq!(decoded.prefix().get(), 0);
+}
+
+#[test]
+fn ss58_decode_bad_checksum() {
+    let pk = Pubkey::from_bytes(h32(
+        "d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+    ));
+    let addr = Ss58Address::encode(&pk, Ss58Prefix::SUBSTRATE_GENERIC);
+    let s = addr.as_str();
+    let mut chars: Vec<char> = s.chars().collect();
+    let last = chars.last_mut().unwrap();
+    *last = if *last == 'A' { 'B' } else { 'A' };
+    let corrupted: String = chars.into_iter().collect();
+    assert!(Ss58Address::parse(&corrupted).is_err());
+}
+
+#[test]
+fn ss58_decode_too_short() {
+    assert!(Ss58Address::parse("5abc").is_err());
+}
+
+#[test]
+fn ss58_decode_empty() {
+    assert!(Ss58Address::parse("").is_err());
+}
+
+#[test]
+fn ss58_prefix_63_valid() {
+    assert!(Ss58Prefix::new(63).is_ok());
+}
+
+#[test]
+fn ss58_prefix_64_invalid() {
+    assert!(Ss58Prefix::new(64).is_err());
+}
