@@ -576,3 +576,28 @@ func TestGroupNonMemberRejected(t *testing.T) {
 	_, err = DecryptFromGroup(gr.Content, charlieScalar, gr.Nonce, len(members))
 	require.Error(t, err)
 }
+
+func TestSr25519SignReturns64Bytes(t *testing.T) {
+	var seedBytes [32]byte
+	for i := range seedBytes {
+		seedBytes[i] = 0xab
+	}
+	seed := SeedFromBytes(seedBytes)
+	sig, err := Sr25519Sign(seed, []byte("test message"))
+	require.NoError(t, err)
+	b := sig.Bytes()
+	require.Equal(t, 64, len(b))
+}
+
+func TestSr25519SignDiffersForDifferentMessages(t *testing.T) {
+	var seedBytes [32]byte
+	for i := range seedBytes {
+		seedBytes[i] = 0xab
+	}
+	seed := SeedFromBytes(seedBytes)
+	a, err := Sr25519Sign(seed, []byte("message one"))
+	require.NoError(t, err)
+	b, err := Sr25519Sign(seed, []byte("message two"))
+	require.NoError(t, err)
+	require.NotEqual(t, a.Bytes(), b.Bytes())
+}
