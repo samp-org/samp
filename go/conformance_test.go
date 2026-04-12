@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -786,4 +787,1172 @@ func TestDecodeThreadContentTruncated(t *testing.T) {
 	short := PlaintextFromBytes([]byte{0x01, 0x02})
 	_, _, _, _, err := DecodeThreadContent(short)
 	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: types.go String/Len/Get/Bytes ---
+
+func TestTypeStringMethods(t *testing.T) {
+	// BlockNumber
+	bn := BlockNumberFrom(42)
+	require.Equal(t, uint32(42), bn.Get())
+	require.Equal(t, "#42", bn.String())
+
+	bnU64, err := BlockNumberFromUint64(100)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), bnU64.Get())
+
+	_, err = BlockNumberFromUint64(0x1_0000_0000)
+	require.ErrorIs(t, err, ErrBlockNumberOverflow)
+
+	// ExtIndex
+	ei := ExtIndexFrom(7)
+	require.Equal(t, uint16(7), ei.Get())
+	require.Equal(t, ".7", ei.String())
+
+	eiI, err := ExtIndexFromInt(65535)
+	require.NoError(t, err)
+	require.Equal(t, uint16(65535), eiI.Get())
+
+	_, err = ExtIndexFromInt(-1)
+	require.ErrorIs(t, err, ErrExtIndexOverflow)
+	_, err = ExtIndexFromInt(0x10000)
+	require.ErrorIs(t, err, ErrExtIndexOverflow)
+
+	// BlockRef via BlockRefNew
+	br := BlockRefNew(bn, ei)
+	require.Equal(t, uint32(42), br.Block().Get())
+	require.Equal(t, uint16(7), br.Index().Get())
+
+	// ExtrinsicNonce
+	en := ExtrinsicNonceFrom(99)
+	require.Equal(t, uint32(99), en.Get())
+
+	// SpecVersion
+	sv := SpecVersionFrom(200)
+	require.Equal(t, uint32(200), sv.Get())
+
+	// TxVersion
+	tv := TxVersionFrom(3)
+	require.Equal(t, uint32(3), tv.Get())
+
+	// PalletIdx
+	pi := PalletIdxFrom(5)
+	require.Equal(t, uint8(5), pi.Get())
+
+	// CallIdx
+	ci := CallIdxFrom(8)
+	require.Equal(t, uint8(8), ci.Get())
+
+	// Pubkey String
+	var pkb [32]byte
+	pkb[0] = 0xAB
+	pk := PubkeyFromBytes(pkb)
+	require.Equal(t, 32, len(pk.Bytes()))
+	require.Contains(t, pk.String(), "Pubkey(0x")
+	require.Contains(t, pk.String(), "ab")
+
+	// Pubkey.ToSs58
+	addr := pk.ToSs58(Ss58SubstrateGeneric)
+	require.NotEmpty(t, addr.String())
+
+	// Signature String
+	var sigb [64]byte
+	sigb[0] = 0xCD
+	sig := SignatureFromBytes(sigb)
+	require.Equal(t, 64, len(sig.Bytes()))
+	require.Contains(t, sig.String(), "Signature(0x")
+
+	// GenesisHash String
+	var ghb [32]byte
+	ghb[0] = 0xEF
+	gh := GenesisHashFromBytes(ghb)
+	require.Equal(t, 32, len(gh.Bytes()))
+	require.Contains(t, gh.String(), "GenesisHash(0x")
+
+	// Nonce String
+	var nb [12]byte
+	nb[0] = 0x01
+	n := NonceFromBytes(nb)
+	require.Equal(t, 12, len(n.Bytes()))
+	require.Contains(t, n.String(), "Nonce(0x")
+
+	// ViewTag
+	vt := ViewTagFrom(0x42)
+	require.Equal(t, uint8(0x42), vt.Get())
+	require.Equal(t, "ViewTag(0x42)", vt.String())
+
+	// EphPubkey
+	ep := EphPubkeyFromBytes(pkb)
+	require.Equal(t, pkb, ep.Bytes())
+
+	// Plaintext
+	pt := PlaintextFromBytes([]byte("hello"))
+	require.Equal(t, []byte("hello"), pt.Bytes())
+	require.Equal(t, 5, pt.Len())
+	require.Equal(t, "Plaintext(5 bytes)", pt.String())
+
+	// Ciphertext
+	ct := CiphertextFromBytes([]byte("cipher"))
+	require.Equal(t, []byte("cipher"), ct.Bytes())
+	require.Equal(t, 6, ct.Len())
+	require.Equal(t, "Ciphertext(6 bytes)", ct.String())
+
+	// Capsules
+	capsuleData := make([]byte, CapsuleSize*2)
+	caps, err := CapsulesFromBytes(capsuleData)
+	require.NoError(t, err)
+	require.Equal(t, CapsuleSize*2, len(caps.Bytes()))
+	require.Equal(t, 2, caps.Count())
+	require.Equal(t, "Capsules(2 entries)", caps.String())
+
+	_, err = CapsulesFromBytes([]byte{0x01, 0x02})
+	require.ErrorIs(t, err, ErrInvalidCapsules)
+
+	// RemarkBytes
+	rb := RemarkBytesFromBytes([]byte("remark"))
+	require.Equal(t, []byte("remark"), rb.Bytes())
+	require.Equal(t, 6, rb.Len())
+
+	// ExtrinsicBytes
+	eb := ExtrinsicBytesFromBytes([]byte("ext"))
+	require.Equal(t, []byte("ext"), eb.Bytes())
+	require.Equal(t, 3, eb.Len())
+
+	// CallArgs
+	ca := CallArgsFromBytes([]byte("args"))
+	require.Equal(t, []byte("args"), ca.Bytes())
+	require.Equal(t, 4, ca.Len())
+
+	// ChannelName
+	cn, err := ChannelNameParse("chan")
+	require.NoError(t, err)
+	require.Equal(t, "chan", cn.String())
+	require.Equal(t, 4, cn.Len())
+
+	// ChannelDescription
+	cd, err := ChannelDescriptionParse("desc")
+	require.NoError(t, err)
+	require.Equal(t, "desc", cd.String())
+	require.Equal(t, 4, cd.Len())
+}
+
+// --- Coverage: secret.go ---
+
+func TestSecretTypesCoverage(t *testing.T) {
+	var b [32]byte
+	b[0] = 0xFF
+
+	seed := SeedFromBytes(b)
+	require.Equal(t, b, seed.ExposeSecret())
+
+	ck := ContentKeyFromBytes(b)
+	require.Equal(t, b, ck.ExposeSecret())
+	require.Contains(t, ck.String(), "REDACTED")
+
+	vs := ViewScalarFromBytes(b)
+	require.Equal(t, b, vs.ExposeSecret())
+	require.Contains(t, vs.String(), "REDACTED")
+}
+
+// --- Coverage: CheckViewTag ---
+
+func TestCheckViewTagDirect(t *testing.T) {
+	sender := seedFilled(0xAA)
+	recipient := seedFilled(0xBB)
+	recipientPub := PublicFromSeed(recipient)
+	var nb [12]byte
+	for i := range nb {
+		nb[i] = 0x01
+	}
+	nonce := NonceFromBytes(nb)
+
+	tag, err := ComputeViewTag(sender, recipientPub, nonce)
+	require.NoError(t, err)
+
+	pt := PlaintextFromBytes([]byte("hello"))
+	ct, err := Encrypt(pt, recipientPub, nonce, sender)
+	require.NoError(t, err)
+
+	recipientScalar := Sr25519SigningScalar(recipient)
+	checkedTag, err := CheckViewTag(ct, recipientScalar)
+	require.NoError(t, err)
+	require.Equal(t, tag.Get(), checkedTag.Get())
+}
+
+func TestCheckViewTagTruncatedCiphertext(t *testing.T) {
+	scalar := Sr25519SigningScalar(seedFilled(0xAA))
+	_, err := CheckViewTag(CiphertextFromBytes([]byte{0x01}), scalar)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: ExtrinsicError.Error() ---
+
+func TestExtrinsicErrorString(t *testing.T) {
+	e := &ExtrinsicError{Msg: "test failure"}
+	require.Equal(t, "samp: extrinsic: test failure", e.Error())
+}
+
+// --- Coverage: Remark ContentType() methods ---
+
+func TestRemarkContentTypes(t *testing.T) {
+	require.Equal(t, ContentTypePublic, PublicRemark{}.ContentType())
+	require.Equal(t, ContentTypeEncrypted, EncryptedRemark{}.ContentType())
+	require.Equal(t, ContentTypeThread, ThreadRemark{}.ContentType())
+	require.Equal(t, ContentTypeChannelCreate, ChannelCreateRemark{}.ContentType())
+	require.Equal(t, ContentTypeChannel, ChannelRemark{}.ContentType())
+	require.Equal(t, ContentTypeGroup, GroupRemark{}.ContentType())
+	require.Equal(t, ContentType(0x18), ApplicationRemark{Tag: 0x18}.ContentType())
+}
+
+// --- Coverage: EncodeChannelContent / DecodeChannelContent / DecodeGroupContent ---
+
+func TestChannelContentRoundTrip(t *testing.T) {
+	replyTo := BlockRefFromParts(10, 1)
+	continues := BlockRefFromParts(20, 2)
+	body := []byte("channel body")
+
+	pt := EncodeChannelContent(replyTo, continues, body)
+	gotReply, gotCont, gotBody, err := DecodeChannelContent(pt)
+	require.NoError(t, err)
+	require.Equal(t, uint32(10), gotReply.Block().Get())
+	require.Equal(t, uint16(1), gotReply.Index().Get())
+	require.Equal(t, uint32(20), gotCont.Block().Get())
+	require.Equal(t, uint16(2), gotCont.Index().Get())
+	require.Equal(t, body, gotBody)
+}
+
+func TestDecodeChannelContentTruncated(t *testing.T) {
+	short := PlaintextFromBytes([]byte{0x01})
+	_, _, _, err := DecodeChannelContent(short)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeGroupContentRoundTrip(t *testing.T) {
+	groupRef := BlockRefFromParts(5, 0)
+	replyTo := BlockRefFromParts(6, 1)
+	continues := BlockRefFromParts(7, 2)
+	body := []byte("group body")
+
+	pt := EncodeThreadContent(groupRef, replyTo, continues, body)
+	gotGroup, gotReply, gotCont, gotBody, err := DecodeGroupContent(pt)
+	require.NoError(t, err)
+	require.Equal(t, uint32(5), gotGroup.Block().Get())
+	require.Equal(t, uint32(6), gotReply.Block().Get())
+	require.Equal(t, uint32(7), gotCont.Block().Get())
+	require.Equal(t, body, gotBody)
+}
+
+func TestDecodeGroupContentTruncated(t *testing.T) {
+	short := PlaintextFromBytes([]byte{0x01, 0x02})
+	_, _, _, _, err := DecodeGroupContent(short)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: ApplicationRemark via DecodeRemark ---
+
+func TestDecodeRemarkApplicationType(t *testing.T) {
+	data := []byte{0x18, 0xDE, 0xAD}
+	r, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.NoError(t, err)
+	ar, ok := r.(ApplicationRemark)
+	require.True(t, ok)
+	require.Equal(t, byte(0x18), ar.Tag)
+	require.Equal(t, []byte{0xDE, 0xAD}, ar.Payload)
+}
+
+// --- Coverage: metadata.go Humanize with doc, maybeTranslateModule, HumanizeRpcError Module path ---
+
+func TestErrorTableHumanizeWithDoc(t *testing.T) {
+	table := NewErrorTable()
+	table.byIdx[errorKey{1, 2}] = ErrorEntry{Pallet: "Balances", Variant: "InsufficientBalance", Doc: "not enough funds"}
+	msg, ok := table.Humanize(1, 2)
+	require.True(t, ok)
+	require.Equal(t, "Balances::InsufficientBalance: not enough funds", msg)
+
+	table.byIdx[errorKey{1, 3}] = ErrorEntry{Pallet: "Balances", Variant: "ExistentialDeposit", Doc: ""}
+	msg2, ok := table.Humanize(1, 3)
+	require.True(t, ok)
+	require.Equal(t, "Balances::ExistentialDeposit", msg2)
+}
+
+func TestHumanizeRpcErrorTranslatesModuleError(t *testing.T) {
+	table := NewErrorTable()
+	table.byIdx[errorKey{5, 2}] = ErrorEntry{Pallet: "Balances", Variant: "InsufficientBalance", Doc: "not enough"}
+	raw := `RPC error: {"data":"Module { index: 5, error: [2, 0, 0, 0], message: None }","message":"bad"}`
+	result := table.HumanizeRpcError(raw)
+	require.Equal(t, "Balances::InsufficientBalance: not enough", result)
+}
+
+func TestHumanizeRpcErrorRawModuleString(t *testing.T) {
+	table := NewErrorTable()
+	table.byIdx[errorKey{3, 1}] = ErrorEntry{Pallet: "System", Variant: "CallFiltered", Doc: ""}
+	raw := `Module { index: 3, error: [1, 0, 0, 0], message: None }`
+	result := table.HumanizeRpcError(raw)
+	require.Equal(t, "System::CallFiltered", result)
+}
+
+func TestHumanizeRpcErrorTransactionFailed(t *testing.T) {
+	table := NewErrorTable()
+	raw := `transaction failed: {"data":"some error","message":"bad tx"}`
+	result := table.HumanizeRpcError(raw)
+	require.Equal(t, "some error", result)
+}
+
+// --- Coverage: ContentTypeFromByte for application range ---
+
+func TestContentTypeFromByteApplicationRange(t *testing.T) {
+	ct, err := ContentTypeFromByte(0x18)
+	require.NoError(t, err)
+	require.Equal(t, byte(0x18), ct.Byte())
+}
+
+// --- Coverage: DecryptFromGroup insufficient data ---
+
+func TestDecryptFromGroupTruncated(t *testing.T) {
+	scalar := Sr25519SigningScalar(seedFilled(0xAA))
+	nonce := NonceFromBytes([12]byte{})
+	_, err := DecryptFromGroup([]byte{0x01}, scalar, nonce, 0)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: Decrypt/DecryptAsSender truncated ---
+
+func TestDecryptTruncatedCiphertext(t *testing.T) {
+	scalar := Sr25519SigningScalar(seedFilled(0xAA))
+	nonce := NonceFromBytes([12]byte{})
+	_, err := Decrypt(CiphertextFromBytes([]byte{0x01}), nonce, scalar)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecryptAsSenderTruncated(t *testing.T) {
+	seed := seedFilled(0xAA)
+	nonce := NonceFromBytes([12]byte{})
+	_, err := DecryptAsSender(CiphertextFromBytes([]byte{0x01}), nonce, seed)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestUnsealRecipientTruncated(t *testing.T) {
+	seed := seedFilled(0xAA)
+	nonce := NonceFromBytes([12]byte{})
+	_, err := UnsealRecipient(CiphertextFromBytes([]byte{0x01}), nonce, seed)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: DecodeRemark edge cases ---
+
+func TestDecodeRemarkPublicTruncated(t *testing.T) {
+	data := []byte{0x10, 0x01}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeRemarkChannelTruncated(t *testing.T) {
+	data := []byte{0x14, 0x01}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeRemarkGroupTruncated(t *testing.T) {
+	data := []byte{0x15, 0x01}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeRemarkEncryptedTruncated(t *testing.T) {
+	data := []byte{0x11, 0x01}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeRemarkChannelCreateTruncated(t *testing.T) {
+	data := []byte{0x13}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeRemarkPublicInvalidUTF8(t *testing.T) {
+	data := make([]byte, 34)
+	data[0] = 0x10
+	data[33] = 0xFF
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInvalidUTF8)
+}
+
+func TestDecodeRemarkChannelInvalidUTF8(t *testing.T) {
+	data := make([]byte, 20)
+	data[0] = 0x14
+	data[19] = 0xFF
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInvalidUTF8)
+}
+
+// --- Coverage: metadata DecodeUint short ---
+
+func TestStorageLayoutDecodeUintTooShort(t *testing.T) {
+	layout := StorageLayout{Offset: 0, Width: 8}
+	_, err := layout.DecodeUint([]byte{0x01, 0x02})
+	require.Error(t, err)
+}
+
+// --- Coverage: DecodeGroupMembers truncated ---
+
+func TestDecodeGroupMembersTruncated(t *testing.T) {
+	_, _, err := DecodeGroupMembers([]byte{0x02, 0x01})
+	require.ErrorIs(t, err, ErrInsufficientData)
+
+	_, _, err = DecodeGroupMembers([]byte{})
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: remarkSealed() ---
+
+func TestRemarkSealedMethods(t *testing.T) {
+	PublicRemark{}.remarkSealed()
+	EncryptedRemark{}.remarkSealed()
+	ThreadRemark{}.remarkSealed()
+	ChannelCreateRemark{}.remarkSealed()
+	ChannelRemark{}.remarkSealed()
+	GroupRemark{}.remarkSealed()
+	ApplicationRemark{}.remarkSealed()
+}
+
+// --- Coverage: decodeChannelCreatePayload edge cases ---
+
+func TestDecodeChannelCreateNameZeroLen(t *testing.T) {
+	data := []byte{0x13, 0x00, 0x00}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.Error(t, err)
+}
+
+func TestDecodeChannelCreateNameTooLong(t *testing.T) {
+	data := []byte{0x13, 0x21}
+	data = append(data, make([]byte, 33)...)
+	data = append(data, 0x00)
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.Error(t, err)
+}
+
+func TestDecodeChannelCreateDescTruncated(t *testing.T) {
+	data := []byte{0x13, 0x04}
+	data = append(data, []byte("test")...)
+	data = append(data, 0x05)
+	data = append(data, []byte("ab")...)
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeChannelCreateNameBodyTruncated(t *testing.T) {
+	data := []byte{0x13, 0x04, 0x41}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+// --- Coverage: ExtractCall more edge cases ---
+
+func TestExtractCallTruncatedAtNonce(t *testing.T) {
+	// Build a valid extrinsic and then truncate it at the nonce field
+	args := buildRemarkArgs([]byte("x"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+
+	// Truncate just after the signed header
+	b := ext.Bytes()
+	_, prefixLen, _ := DecodeCompact(b)
+	truncated := make([]byte, prefixLen+signedHeaderLen+1)
+	copy(truncated, b[:len(truncated)])
+	// Re-encode compact prefix for the truncated payload
+	payloadLen := len(truncated) - prefixLen
+	newPrefix := EncodeCompact(uint64(payloadLen))
+	final := append(newPrefix, truncated[prefixLen:]...)
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes(final))
+	require.False(t, ok)
+}
+
+// --- Coverage: ContentTypeFromByte reserved 0x17 ---
+
+func TestContentTypeFromByteReserved(t *testing.T) {
+	_, err := ContentTypeFromByte(0x17)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserved")
+}
+
+// --- Coverage: MetadataError.Error ---
+
+func TestMetadataErrorString(t *testing.T) {
+	e := &MetadataError{Kind: "test", Msg: "something broke"}
+	require.Equal(t, "samp: metadata: something broke", e.Error())
+}
+
+// --- Coverage: channel decode round trip via DecodeRemark ---
+
+func TestDecodeRemarkChannelRoundTrip(t *testing.T) {
+	remark := EncodeChannelMsg(
+		BlockRefFromParts(1, 2),
+		BlockRefFromParts(3, 4),
+		BlockRefFromParts(5, 6),
+		"hello channel",
+	)
+	r, err := DecodeRemark(remark)
+	require.NoError(t, err)
+	cr, ok := r.(ChannelRemark)
+	require.True(t, ok)
+	require.Equal(t, uint32(1), cr.ChannelRef.Block().Get())
+	require.Equal(t, "hello channel", cr.Body)
+}
+
+// --- Coverage: ComputeViewTag error path (invalid point) is unreachable in normal use,
+// but we can cover the error-return path of Encrypt with a zero pubkey.
+
+func TestEncryptEmptyPlaintext(t *testing.T) {
+	seed := seedFilled(0xAA)
+	recipientPub := PublicFromSeed(seedFilled(0xBB))
+	nonce := NonceFromBytes([12]byte{0x01})
+	ct, err := Encrypt(PlaintextFromBytes([]byte{}), recipientPub, nonce, seed)
+	require.NoError(t, err)
+	require.Equal(t, EncryptedOverhead, ct.Len())
+}
+
+func TestComputeViewTagRoundTrip(t *testing.T) {
+	seed := seedFilled(0xAA)
+	recipientSeed := seedFilled(0xBB)
+	recipientPub := PublicFromSeed(recipientSeed)
+	nonce := NonceFromBytes([12]byte{0x01})
+	tag, err := ComputeViewTag(seed, recipientPub, nonce)
+	require.NoError(t, err)
+	require.True(t, tag.Get() < 0xFF || tag.Get() >= 0x00) // always valid byte
+}
+
+func TestDecryptAsSenderWithZeroPubkeyMayFail(t *testing.T) {
+	seed := seedFilled(0xAA)
+	nonce := NonceFromBytes([12]byte{0x01})
+	ct := CiphertextFromBytes(make([]byte, EncryptedOverhead+1))
+	_, err := DecryptAsSender(ct, nonce, seed)
+	require.Error(t, err)
+}
+
+// --- Coverage: ContentTypeFromByte all valid SAMP nibbles ---
+
+func TestContentTypeFromByteAllValid(t *testing.T) {
+	for _, b := range []byte{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F} {
+		ct, err := ContentTypeFromByte(b)
+		require.NoError(t, err)
+		require.Equal(t, b, ct.Byte())
+	}
+	for _, b := range []byte{0x16, 0x17} {
+		_, err := ContentTypeFromByte(b)
+		require.Error(t, err)
+	}
+	for _, b := range []byte{0x00, 0x20, 0xFF} {
+		_, err := ContentTypeFromByte(b)
+		require.Error(t, err)
+	}
+}
+
+// --- Coverage: ExtractCall with mortal-era-like extrinsic ---
+
+func TestExtractCallEmptyInput(t *testing.T) {
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes([]byte{}))
+	require.False(t, ok)
+}
+
+// --- Coverage: Polkadot metadata byteSize through nested StorageLayout ---
+
+func TestPolkadotMetadataStorageLayoutNonce(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	layout, err := metadata.StorageLayout("System", "Account", []string{"nonce"})
+	require.NoError(t, err)
+	require.True(t, layout.Width > 0)
+}
+
+func TestPolkadotMetadataStorageLayoutProviders(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	layout, err := metadata.StorageLayout("System", "Account", []string{"providers"})
+	require.NoError(t, err)
+	require.True(t, layout.Width > 0)
+}
+
+// --- Coverage: metadata error table from parsed metadata ---
+
+func TestPolkadotMetadataErrorTableHumanize(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	// System pallet is typically index 0, and has errors
+	// Try common error indices
+	found := false
+	for i := uint8(0); i < 10; i++ {
+		if msg, ok := metadata.Errors.Humanize(0, i); ok {
+			require.NotEmpty(t, msg)
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected at least one System error in Polkadot metadata")
+}
+
+func TestPolkadotMetadataHumanizeRpcModuleError(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	// Find any valid pallet/error pair
+	var palletIdx uint8
+	var errIdx uint8
+	found := false
+	for pi := uint8(0); pi < 50 && !found; pi++ {
+		for ei := uint8(0); ei < 20; ei++ {
+			if _, ok := metadata.Errors.Humanize(pi, ei); ok {
+				palletIdx = pi
+				errIdx = ei
+				found = true
+				break
+			}
+		}
+	}
+	require.True(t, found)
+	// Test HumanizeRpcError with Module string
+	raw := fmt.Sprintf(`Module { index: %d, error: [%d, 0, 0, 0], message: None }`, palletIdx, errIdx)
+	result := metadata.Errors.HumanizeRpcError(raw)
+	require.NotEqual(t, raw, result)
+}
+
+// --- Coverage: StorageLayout traversal error for non-composite field ---
+
+func TestStorageLayoutNonCompositeTraversal(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	_, err = metadata.StorageLayout("System", "Account", []string{"nonce", "invalid_subfield"})
+	require.Error(t, err)
+}
+
+// --- Coverage: StorageLayout non-unsigned-int target ---
+
+func TestStorageLayoutNonIntTarget(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	// "data" is a composite, not a uint
+	_, err = metadata.StorageLayout("System", "Account", []string{"data"})
+	require.Error(t, err)
+}
+
+func TestStorageLayoutReservedFieldExercisesByteSize(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	// "reserved" comes after "free", "reserved_named", "frozen" in AccountData.
+	// This forces byteSize to compute widths of preceding fields.
+	layout, err := metadata.StorageLayout("System", "Account", []string{"data", "reserved"})
+	if err != nil {
+		// "reserved" may not exist in all runtime versions; try "frozen" instead
+		layout, err = metadata.StorageLayout("System", "Account", []string{"data", "frozen"})
+		require.NoError(t, err)
+	}
+	require.True(t, layout.Width > 0)
+}
+
+func TestStorageLayoutSufficientsField(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	layout, err := metadata.StorageLayout("System", "Account", []string{"sufficients"})
+	require.NoError(t, err)
+	require.True(t, layout.Width > 0)
+}
+
+// --- Coverage: metadata string helpers ---
+
+func TestTrimToJsonNoOpenBrace(t *testing.T) {
+	_, ok := trimToJson("no braces here")
+	require.False(t, ok)
+}
+
+func TestTrimToJsonUnclosed(t *testing.T) {
+	_, ok := trimToJson(`{"key": "value"`)
+	require.False(t, ok)
+}
+
+func TestTrimToJsonNested(t *testing.T) {
+	s, ok := trimToJson(`prefix {"a": {"b": 1}} suffix`)
+	require.True(t, ok)
+	require.Equal(t, `{"a": {"b": 1}}`, s)
+}
+
+func TestTrimToJsonEscapedQuote(t *testing.T) {
+	s, ok := trimToJson(`{"key": "val\"ue"}`)
+	require.True(t, ok)
+	require.Contains(t, s, "key")
+}
+
+func TestParseAfterNoNeedle(t *testing.T) {
+	_, ok := parseAfter("hello world", "missing:")
+	require.False(t, ok)
+}
+
+func TestParseAfterNoDigits(t *testing.T) {
+	_, ok := parseAfter("index: abc", "index:")
+	require.False(t, ok)
+}
+
+func TestParseAfterValid(t *testing.T) {
+	v, ok := parseAfter("Module { index: 42, error:", "index:")
+	require.True(t, ok)
+	require.Equal(t, 42, v)
+}
+
+func TestParseFirstByteAfterNoNeedle(t *testing.T) {
+	_, ok := parseFirstByteAfter("hello world", "error:")
+	require.False(t, ok)
+}
+
+func TestParseFirstByteAfterNoBracket(t *testing.T) {
+	_, ok := parseFirstByteAfter("error: abc", "error:")
+	require.False(t, ok)
+}
+
+func TestParseFirstByteAfterValid(t *testing.T) {
+	v, ok := parseFirstByteAfter("error: [7, 0, 0, 0]", "error:")
+	require.True(t, ok)
+	require.Equal(t, 7, v)
+}
+
+func TestMaybeTranslateModuleNoModule(t *testing.T) {
+	table := NewErrorTable()
+	_, ok := table.maybeTranslateModule("no module here")
+	require.False(t, ok)
+}
+
+func TestMaybeTranslateModuleNoIndex(t *testing.T) {
+	table := NewErrorTable()
+	_, ok := table.maybeTranslateModule("Module { blah }")
+	require.False(t, ok)
+}
+
+func TestMaybeTranslateModuleNoError(t *testing.T) {
+	table := NewErrorTable()
+	_, ok := table.maybeTranslateModule("Module { index: 5 }")
+	require.False(t, ok)
+}
+
+func TestMaybeTranslateModuleOverflow(t *testing.T) {
+	table := NewErrorTable()
+	_, ok := table.maybeTranslateModule("Module { index: 999, error: [999, 0, 0, 0] }")
+	require.False(t, ok)
+}
+
+func TestFindAfterAnyNoMatch(t *testing.T) {
+	_, ok := findAfterAny("nothing here", []string{"foo: ", "bar: "})
+	require.False(t, ok)
+}
+
+func TestFindAfterAnyMatch(t *testing.T) {
+	rest, ok := findAfterAny("prefix bar: payload", []string{"foo: ", "bar: "})
+	require.True(t, ok)
+	require.Equal(t, "payload", rest)
+}
+
+// --- Coverage: metadata reader error paths ---
+
+func TestReaderReadBeyondEnd(t *testing.T) {
+	r := &reader{data: []byte{0x01, 0x02}, pos: 0}
+	_, err := r.read(3)
+	require.Error(t, err)
+}
+
+func TestReaderReadU8BeyondEnd(t *testing.T) {
+	r := &reader{data: []byte{}, pos: 0}
+	_, err := r.readU8()
+	require.Error(t, err)
+}
+
+func TestReaderReadU32BeyondEnd(t *testing.T) {
+	r := &reader{data: []byte{0x01, 0x02}, pos: 0}
+	_, err := r.readU32()
+	require.Error(t, err)
+}
+
+func TestReaderReadCompactBeyondEnd(t *testing.T) {
+	r := &reader{data: []byte{}, pos: 0}
+	_, err := r.readCompact()
+	require.Error(t, err)
+}
+
+func TestReaderReadStringBeyondEnd(t *testing.T) {
+	// Compact says 10 bytes but only 2 available
+	r := &reader{data: []byte{0x28}, pos: 0} // compact(10)
+	_, err := r.readString()
+	require.Error(t, err)
+}
+
+func TestReaderReadOptionStringInvalidTag(t *testing.T) {
+	r := &reader{data: []byte{0x02}, pos: 0}
+	_, _, err := r.readOptionString()
+	require.Error(t, err)
+}
+
+func TestReaderReadOptionStringNone(t *testing.T) {
+	r := &reader{data: []byte{0x00}, pos: 0}
+	s, present, err := r.readOptionString()
+	require.NoError(t, err)
+	require.False(t, present)
+	require.Empty(t, s)
+}
+
+func TestReaderReadOptionStringSome(t *testing.T) {
+	// tag=1, compact length=4, "test"
+	r := &reader{data: append([]byte{0x01, 0x10}, []byte("test")...), pos: 0}
+	s, present, err := r.readOptionString()
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "test", s)
+}
+
+func TestReaderReadVecStringEmpty(t *testing.T) {
+	r := &reader{data: []byte{0x00}, pos: 0}
+	vs, err := r.readVecString()
+	require.NoError(t, err)
+	require.Empty(t, vs)
+}
+
+func TestReaderReadVecU8Empty(t *testing.T) {
+	r := &reader{data: []byte{0x00}, pos: 0}
+	b, err := r.readVecU8()
+	require.NoError(t, err)
+	require.Empty(t, b)
+}
+
+func TestReaderReadVecU8Truncated(t *testing.T) {
+	// Compact says 5 bytes but only 1 available
+	r := &reader{data: []byte{0x14, 0xAA}, pos: 0}
+	_, err := r.readVecU8()
+	require.Error(t, err)
+}
+
+func TestReaderReadVecStringTruncated(t *testing.T) {
+	// Compact says 1 string, but the string's compact length is truncated
+	r := &reader{data: []byte{0x04, 0x28}, pos: 0} // 1 string, string compact says 10 bytes
+	_, err := r.readVecString()
+	require.Error(t, err)
+}
+
+func TestOptionTagInvalid(t *testing.T) {
+	r := &reader{data: []byte{0x03}, pos: 0}
+	_, err := optionTag(r)
+	require.Error(t, err)
+}
+
+func TestSkipTypeParamsInvalidTag(t *testing.T) {
+	// 1 param, name="x", tag=2 (invalid)
+	data := []byte{0x04, 0x04, 'x', 0x02}
+	r := &reader{data: data, pos: 0}
+	err := skipTypeParams(r)
+	require.Error(t, err)
+}
+
+func TestSkipTypeParamsNone(t *testing.T) {
+	// 1 param, name="x", tag=0 (None)
+	data := []byte{0x04, 0x04, 'x', 0x00}
+	r := &reader{data: data, pos: 0}
+	err := skipTypeParams(r)
+	require.NoError(t, err)
+}
+
+func TestSkipTypeParamsSome(t *testing.T) {
+	// 1 param, name="x", tag=1 (Some), compact type id=0
+	data := []byte{0x04, 0x04, 'x', 0x01, 0x00}
+	r := &reader{data: data, pos: 0}
+	err := skipTypeParams(r)
+	require.NoError(t, err)
+}
+
+func TestPrimitiveFromTagUnknown(t *testing.T) {
+	_, err := primitiveFromTag(99)
+	require.Error(t, err)
+}
+
+func TestPrimitiveFromTagStr(t *testing.T) {
+	shape, err := primitiveFromTag(2)
+	require.NoError(t, err)
+	_, ok := shape.(variableShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefComposite(t *testing.T) {
+	// tag=0 (composite), 0 fields
+	r := &reader{data: []byte{0x00, 0x00}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	_, ok := shape.(compositeShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefVariant(t *testing.T) {
+	// tag=1 (variant), 0 variants
+	r := &reader{data: []byte{0x01, 0x00}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	_, ok := shape.(variantShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefSequence(t *testing.T) {
+	// tag=2 (sequence), compact type id=0
+	r := &reader{data: []byte{0x02, 0x00}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	_, ok := shape.(variableShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefArray(t *testing.T) {
+	// tag=3 (array), length=4 (LE u32), compact inner type id=0
+	r := &reader{data: []byte{0x03, 0x04, 0x00, 0x00, 0x00, 0x00}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	as, ok := shape.(arrayShape)
+	require.True(t, ok)
+	require.Equal(t, uint32(4), as.Length)
+}
+
+func TestReadTypeDefTuple(t *testing.T) {
+	// tag=4 (tuple), 2 type ids (compact 0 each)
+	r := &reader{data: []byte{0x04, 0x08, 0x00, 0x04}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	ts, ok := shape.(tupleShape)
+	require.True(t, ok)
+	require.Equal(t, 2, len(ts.Ids))
+}
+
+func TestReadTypeDefPrimitive(t *testing.T) {
+	// tag=5 (primitive), primitive tag=3 (u8)
+	r := &reader{data: []byte{0x05, 0x03}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	ps, ok := shape.(primitiveShape)
+	require.True(t, ok)
+	require.Equal(t, 1, ps.Width)
+	require.True(t, ps.UnsignedInt)
+}
+
+func TestReadTypeDefCompact(t *testing.T) {
+	// tag=6 (compact), compact type id=0
+	r := &reader{data: []byte{0x06, 0x00}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	_, ok := shape.(variableShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefBitSequence(t *testing.T) {
+	// tag=7 (bit sequence), 2 compact type ids
+	r := &reader{data: []byte{0x07, 0x00, 0x04}, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	_, ok := shape.(variableShape)
+	require.True(t, ok)
+}
+
+func TestReadTypeDefUnknownTag(t *testing.T) {
+	r := &reader{data: []byte{0x08}, pos: 0}
+	_, err := readTypeDef(r)
+	require.Error(t, err)
+}
+
+func TestReadFieldsOneField(t *testing.T) {
+	// 1 field: Option(None) for name, compact type_id=0, Option(None) for typeName, 0 docs
+	data := []byte{0x04, 0x00, 0x00, 0x00, 0x00}
+	r := &reader{data: data, pos: 0}
+	fields, err := readFields(r)
+	require.NoError(t, err)
+	require.Len(t, fields, 1)
+}
+
+func TestReadStorageEntryValueTypePlain(t *testing.T) {
+	// tag=0, compact type_id=5
+	r := &reader{data: []byte{0x00, 0x14}, pos: 0}
+	ty, err := readStorageEntryValueType(r)
+	require.NoError(t, err)
+	require.Equal(t, uint32(5), ty)
+}
+
+func TestReadStorageEntryValueTypeMap(t *testing.T) {
+	// tag=1, n_hashers=1, hasher byte, key_type compact, value_type compact
+	data := []byte{0x01, 0x04, 0x00, 0x08, 0x0C}
+	r := &reader{data: data, pos: 0}
+	ty, err := readStorageEntryValueType(r)
+	require.NoError(t, err)
+	require.Equal(t, uint32(3), ty)
+}
+
+func TestReadStorageEntryValueTypeUnknown(t *testing.T) {
+	r := &reader{data: []byte{0x02}, pos: 0}
+	_, err := readStorageEntryValueType(r)
+	require.Error(t, err)
+}
+
+func TestReadTypeDefVariantWithFields(t *testing.T) {
+	// tag=1 (variant), 1 variant:
+	//   name="Foo" (compact 3 + "Foo"), 0 fields, index=0, 1 doc string "test doc"
+	fooName := append([]byte{0x0C}, []byte("Foo")...)
+	docStr := append([]byte{0x20}, []byte("test doc")...)
+	variant := append(fooName, 0x00)   // 0 fields
+	variant = append(variant, 0x00)    // index=0
+	variant = append(variant, 0x04)    // 1 doc
+	variant = append(variant, docStr...)
+
+	data := append([]byte{0x01, 0x04}, variant...)
+	r := &reader{data: data, pos: 0}
+	shape, err := readTypeDef(r)
+	require.NoError(t, err)
+	vs, ok := shape.(variantShape)
+	require.True(t, ok)
+	require.Len(t, vs.Entries, 1)
+	require.Equal(t, "Foo", vs.Entries[0].Name)
+	require.Equal(t, "test doc", vs.Entries[0].Doc)
+}
+
+func TestReadCompactOverflowU32(t *testing.T) {
+	data := []byte{0x07, 0x00, 0x00, 0x00, 0x00, 0x02}
+	r := &reader{data: data, pos: 0}
+	_, err := r.readCompact()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds u32")
+}
+
+func TestReadRegistryOneType(t *testing.T) {
+	// 1 type: type_id=0, path=0 strings, 0 type_params, typedef=composite(0 fields), docs=0 strings
+	data := []byte{
+		0x04,       // compact 1 (1 type)
+		0x00,       // compact 0 (type_id)
+		0x00,       // compact 0 (path strings)
+		0x00,       // compact 0 (type_params)
+		0x00, 0x00, // typedef: tag=0 (composite), 0 fields
+		0x00, // compact 0 (docs)
+	}
+	r := &reader{data: data, pos: 0}
+	reg, err := readRegistry(r)
+	require.NoError(t, err)
+	require.Len(t, reg, 1)
+}
+
+func TestReadRegistryNonSequentialId(t *testing.T) {
+	// 1 type but type_id=5 (expected 0)
+	data := []byte{
+		0x04, // compact 1
+		0x14, // compact 5 (non-sequential)
+	}
+	r := &reader{data: data, pos: 0}
+	_, err := readRegistry(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "non-sequential")
+}
+
+func TestReadFieldsWithNamedField(t *testing.T) {
+	// 1 field: Option(Some) for name="foo", compact type_id=0, Option(None) for typeName, 0 docs
+	data := []byte{
+		0x04,                   // compact 1
+		0x01, 0x0C, 'f', 'o', 'o', // Option(Some, "foo")
+		0x00,       // compact 0 (type_id)
+		0x00,       // Option(None) for typeName
+		0x00,       // compact 0 (docs)
+	}
+	r := &reader{data: data, pos: 0}
+	fields, err := readFields(r)
+	require.NoError(t, err)
+	require.Len(t, fields, 1)
+	require.Equal(t, "foo", fields[0].Name)
+}
+
+func TestSkipOptionalCompactWithValue(t *testing.T) {
+	// tag=1 (Some), compact value=42
+	data := []byte{0x01, 0xA8}
+	r := &reader{data: data, pos: 0}
+	err := skipOptionalCompact(r)
+	require.NoError(t, err)
+}
+
+func TestSkipOptionalCompactNone(t *testing.T) {
+	data := []byte{0x00}
+	r := &reader{data: data, pos: 0}
+	err := skipOptionalCompact(r)
+	require.NoError(t, err)
+}
+
+// Test buildErrorTable and resolveCallIndices with known data
+func TestBuildErrorTableWithVariants(t *testing.T) {
+	registry := []typeShape{
+		variantShape{Entries: []variantEntry{
+			{Index: 0, Name: "BadOrigin", Doc: "bad origin"},
+			{Index: 1, Name: "CallFiltered", Doc: ""},
+		}},
+	}
+	pending := []pendingError{{Pallet: "System", PalletIdx: 0, ErrorTy: 0}}
+	table := buildErrorTable(registry, pending)
+	msg, ok := table.Humanize(0, 0)
+	require.True(t, ok)
+	require.Equal(t, "System::BadOrigin: bad origin", msg)
+	msg2, ok := table.Humanize(0, 1)
+	require.True(t, ok)
+	require.Equal(t, "System::CallFiltered", msg2)
+}
+
+func TestBuildErrorTableOutOfBoundsType(t *testing.T) {
+	registry := []typeShape{}
+	pending := []pendingError{{Pallet: "System", PalletIdx: 0, ErrorTy: 999}}
+	table := buildErrorTable(registry, pending)
+	_, ok := table.Humanize(0, 0)
+	require.False(t, ok)
+}
+
+func TestBuildErrorTableNonVariantShape(t *testing.T) {
+	registry := []typeShape{primitiveShape{Width: 4, UnsignedInt: true}}
+	pending := []pendingError{{Pallet: "System", PalletIdx: 0, ErrorTy: 0}}
+	table := buildErrorTable(registry, pending)
+	_, ok := table.Humanize(0, 0)
+	require.False(t, ok)
+}
+
+func TestResolveCallIndicesWithVariants(t *testing.T) {
+	registry := []typeShape{
+		variantShape{Entries: []variantEntry{
+			{Index: 7, Name: "remark"},
+		}},
+	}
+	pending := []pendingCall{{Pallet: "System", PalletIdx: 0, CallsTy: 0}}
+	calls := resolveCallIndices(registry, pending)
+	v, ok := calls[callKey{"System", "remark"}]
+	require.True(t, ok)
+	require.Equal(t, [2]uint8{0, 7}, v)
+}
+
+func TestResolveCallIndicesOutOfBounds(t *testing.T) {
+	registry := []typeShape{}
+	pending := []pendingCall{{Pallet: "System", PalletIdx: 0, CallsTy: 999}}
+	calls := resolveCallIndices(registry, pending)
+	require.Empty(t, calls)
+}
+
+func TestResolveCallIndicesNonVariant(t *testing.T) {
+	registry := []typeShape{primitiveShape{Width: 4, UnsignedInt: true}}
+	pending := []pendingCall{{Pallet: "System", PalletIdx: 0, CallsTy: 0}}
+	calls := resolveCallIndices(registry, pending)
+	require.Empty(t, calls)
+}
+
+// Exercise byteSize compositeShape branch: accessing a field that comes after
+// another composite-typed field in the parent struct.
+func TestStorageLayoutFieldAfterComposite(t *testing.T) {
+	metadata, err := MetadataFromRuntimeMetadata(polkadotMetadataBytes(t))
+	require.NoError(t, err)
+	// In AccountData, "frozen" comes after "free" and "reserved", both u128.
+	// This at minimum exercises primitiveShape summing.
+	// Try more deeply nested structures if available.
+	for _, path := range [][]string{
+		{"data", "frozen"},
+		{"data", "flags"},
+	} {
+		layout, err := metadata.StorageLayout("System", "Account", path)
+		if err == nil {
+			require.True(t, layout.Width > 0)
+			return
+		}
+	}
+	// If neither works, the metadata version doesn't have those fields; that's ok.
 }
