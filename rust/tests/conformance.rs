@@ -557,3 +557,205 @@ fn ss58_prefix_63_valid() {
 fn ss58_prefix_64_invalid() {
     assert!(Ss58Prefix::new(64).is_err());
 }
+
+// --- Phase 2: Types + Secret tests ---
+
+#[test]
+fn secret_seed_debug_redacted() {
+    let s = Seed::from_bytes([0xAA; 32]);
+    let dbg = format!("{:?}", s);
+    assert!(dbg.contains("REDACTED"));
+}
+
+#[test]
+fn secret_view_scalar_debug_redacted() {
+    use samp::secret::ViewScalar;
+    let vs = ViewScalar::from_bytes([0xBB; 32]);
+    let dbg = format!("{:?}", vs);
+    assert!(dbg.contains("REDACTED"));
+}
+
+#[test]
+fn channel_name_parse_too_long() {
+    let long: String = "a".repeat(33);
+    assert!(ChannelName::parse(long).is_err());
+}
+
+#[test]
+fn channel_name_parse_valid() {
+    assert!(ChannelName::parse("test").is_ok());
+}
+
+#[test]
+fn channel_desc_parse_too_long() {
+    let long: String = "a".repeat(129);
+    assert!(ChannelDescription::parse(long).is_err());
+}
+
+#[test]
+fn block_ref_is_zero() {
+    assert!(BlockRef::ZERO.is_zero());
+}
+
+#[test]
+fn block_ref_from_parts_not_zero() {
+    assert!(!BlockRef::from_parts(1, 0).is_zero());
+}
+
+// --- Phase 3: Encryption edge cases ---
+
+#[test]
+fn decrypt_with_wrong_key_fails() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let recipient_seed = Seed::from_bytes([0xBB; 32]);
+    let wrong_seed = Seed::from_bytes([0xCC; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let recipient_pub = encryption::public_from_seed(&recipient_seed);
+    let plaintext = Plaintext::from_bytes(b"hello".to_vec());
+    let ct = encryption::encrypt(&plaintext, &recipient_pub, &n, &sender_seed).unwrap();
+
+    let wrong_scalar = encryption::sr25519_signing_scalar(&wrong_seed);
+    assert!(encryption::decrypt(&ct, &n, &wrong_scalar).is_err());
+}
+
+#[test]
+fn encrypt_decrypt_as_sender_round_trip() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let recipient_seed = Seed::from_bytes([0xBB; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let recipient_pub = encryption::public_from_seed(&recipient_seed);
+    let plaintext = Plaintext::from_bytes(b"sender round trip".to_vec());
+    let ct = encryption::encrypt(&plaintext, &recipient_pub, &n, &sender_seed).unwrap();
+
+    let recovered = encryption::decrypt_as_sender(&ct, &n, &sender_seed).unwrap();
+    assert_eq!(recovered.as_bytes(), plaintext.as_bytes());
+}
+
+#[test]
+fn unseal_recipient_recovers_pubkey() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let recipient_seed = Seed::from_bytes([0xBB; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let recipient_pub = encryption::public_from_seed(&recipient_seed);
+    let plaintext = Plaintext::from_bytes(b"unseal test".to_vec());
+    let ct = encryption::encrypt(&plaintext, &recipient_pub, &n, &sender_seed).unwrap();
+
+    let unsealed = encryption::unseal_recipient(&ct, &n, &sender_seed).unwrap();
+    assert_eq!(unsealed.as_bytes(), recipient_pub.as_bytes());
+}
+
+#[test]
+fn view_tag_mismatch_for_wrong_key() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let recipient_seed = Seed::from_bytes([0xBB; 32]);
+    let wrong_seed = Seed::from_bytes([0xCC; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let recipient_pub = encryption::public_from_seed(&recipient_seed);
+    let plaintext = Plaintext::from_bytes(b"view tag test".to_vec());
+    let ct = encryption::encrypt(&plaintext, &recipient_pub, &n, &sender_seed).unwrap();
+
+    let sender_tag = encryption::compute_view_tag(&sender_seed, &recipient_pub, &n).unwrap();
+    let wrong_scalar = encryption::sr25519_signing_scalar(&wrong_seed);
+    let wrong_tag = encryption::check_view_tag(&ct, &wrong_scalar).unwrap();
+
+    assert_ne!(sender_tag.get(), wrong_tag.get());
+}
+
+#[test]
+fn group_encrypt_single_member() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let member_seed = Seed::from_bytes([0xBB; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let member_pub = encryption::public_from_seed(&member_seed);
+    let plaintext = Plaintext::from_bytes(b"group single member".to_vec());
+
+    let (eph_pub, capsules, ciphertext) =
+        encryption::encrypt_for_group(&plaintext, &[member_pub], &n, &sender_seed).unwrap();
+
+    let remark = encode_group(&n, &eph_pub, &capsules, &ciphertext);
+    let Remark::Group { nonce, content } = decode_remark(&remark).unwrap() else {
+        panic!("expected Group");
+    };
+
+    let member_scalar = encryption::sr25519_signing_scalar(&member_seed);
+    let recovered = encryption::decrypt_from_group(&content, &nonce, &member_scalar, Some(1)).unwrap();
+    assert_eq!(recovered.as_bytes(), plaintext.as_bytes());
+}
+
+#[test]
+fn group_decrypt_wrong_key_fails() {
+    let sender_seed = Seed::from_bytes([0xAA; 32]);
+    let member_seed = Seed::from_bytes([0xBB; 32]);
+    let wrong_seed = Seed::from_bytes([0xCC; 32]);
+    let n = Nonce::from_bytes([0x01; 12]);
+
+    let member_pub = encryption::public_from_seed(&member_seed);
+    let plaintext = Plaintext::from_bytes(b"group wrong key".to_vec());
+
+    let (eph_pub, capsules, ciphertext) =
+        encryption::encrypt_for_group(&plaintext, &[member_pub], &n, &sender_seed).unwrap();
+
+    let remark = encode_group(&n, &eph_pub, &capsules, &ciphertext);
+    let Remark::Group { nonce, content } = decode_remark(&remark).unwrap() else {
+        panic!("expected Group");
+    };
+
+    let wrong_scalar = encryption::sr25519_signing_scalar(&wrong_seed);
+    assert!(encryption::decrypt_from_group(&content, &nonce, &wrong_scalar, Some(1)).is_err());
+}
+
+// --- Phase 4: Wire format error paths ---
+
+#[test]
+fn decode_remark_empty_fails() {
+    let empty = RemarkBytes::from_bytes(vec![]);
+    assert!(decode_remark(&empty).is_err());
+}
+
+#[test]
+fn decode_remark_invalid_version() {
+    let bad = RemarkBytes::from_bytes(vec![0x20, 0x00]);
+    assert!(decode_remark(&bad).is_err());
+}
+
+#[test]
+fn is_samp_remark_false_for_non_samp() {
+    assert!(!is_samp_remark(&[0x20, 0x00]));
+}
+
+#[test]
+fn channel_create_round_trip() {
+    let name = ChannelName::parse("mychan").unwrap();
+    let desc = ChannelDescription::parse("a test channel").unwrap();
+    let remark = encode_channel_create(&name, &desc);
+    let Remark::ChannelCreate {
+        name: n,
+        description: d,
+    } = decode_remark(&remark).unwrap()
+    else {
+        panic!("expected ChannelCreate");
+    };
+    assert_eq!(n.as_str(), "mychan");
+    assert_eq!(d.as_str(), "a test channel");
+}
+
+#[test]
+fn content_type_application_round_trip() {
+    assert_eq!(ContentType::Application(0x18).to_byte(), 0x18);
+    assert_eq!(ContentType::from_byte(0x18).unwrap(), ContentType::Application(0x18));
+}
+
+#[test]
+fn decode_thread_content_truncated_fails() {
+    assert!(decode_thread_content(&[0u8; 5]).is_err());
+}
+
+#[test]
+fn decode_channel_content_truncated_fails() {
+    assert!(decode_channel_content(&[0u8; 3]).is_err());
+}
