@@ -3,12 +3,22 @@ import {
   ChannelDescription,
   ChannelName,
   ContentType,
+  Nonce,
+  Plaintext,
+  Pubkey,
   RemarkBytes,
   SampError,
+  Seed,
+  ViewTag,
+  decodeGroupMembers,
   decodeRemark,
   decodeThreadContent,
   encodeChannelCreate,
+  encodeEncrypted,
+  encodeGroupMembers,
+  encrypt,
   isSampRemark,
+  publicFromSeed,
 } from "../src/index.js";
 
 describe("decodeRemark", () => {
@@ -40,5 +50,36 @@ describe("channel create round trip", () => {
 describe("decodeThreadContent", () => {
   it("rejects truncated data", () => {
     expect(() => decodeThreadContent(new Uint8Array(5))).toThrow(SampError);
+  });
+});
+
+describe("encodeEncrypted round trip", () => {
+  it("encodes and decodes through decodeRemark", () => {
+    const senderSeed = Seed.fromBytes(new Uint8Array(32).fill(0xaa));
+    const recipientPub = publicFromSeed(Seed.fromBytes(new Uint8Array(32).fill(0xbb)));
+    const nonce = Nonce.fromBytes(new Uint8Array(12).fill(0x01));
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("round trip test"));
+    const ct = encrypt(pt, recipientPub, nonce, senderSeed);
+
+    const encoded = encodeEncrypted(ContentType.Encrypted, ViewTag.from(0), nonce, ct);
+    const decoded = decodeRemark(encoded);
+    expect(decoded.type).toBe(ContentType.Encrypted);
+    if (decoded.type === ContentType.Encrypted) {
+      expect(Buffer.from(decoded.nonce)).toEqual(Buffer.from(nonce));
+      expect(Buffer.from(decoded.ciphertext)).toEqual(Buffer.from(ct));
+    }
+  });
+});
+
+describe("encodeGroupMembers + decodeGroupMembers round trip", () => {
+  it("round-trips 2 pubkeys", () => {
+    const pk1 = Pubkey.fromBytes(new Uint8Array(32).fill(0x01));
+    const pk2 = Pubkey.fromBytes(new Uint8Array(32).fill(0x02));
+    const encoded = encodeGroupMembers([pk1, pk2]);
+    const { members, body } = decodeGroupMembers(encoded);
+    expect(members.length).toBe(2);
+    expect(Buffer.from(members[0]!)).toEqual(Buffer.from(pk1));
+    expect(Buffer.from(members[1]!)).toEqual(Buffer.from(pk2));
+    expect(body.length).toBe(0);
   });
 });
