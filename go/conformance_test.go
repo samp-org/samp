@@ -601,3 +601,189 @@ func TestSr25519SignDiffersForDifferentMessages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, a.Bytes(), b.Bytes())
 }
+
+// --- Phase 2: Types ---
+
+func TestSeedStringRedacted(t *testing.T) {
+	var b [32]byte
+	for i := range b {
+		b[i] = 0xAA
+	}
+	seed := SeedFromBytes(b)
+	require.Contains(t, seed.String(), "REDACTED")
+}
+
+func TestChannelNameParseTooLong(t *testing.T) {
+	_, err := ChannelNameParse(strings.Repeat("x", 33))
+	require.ErrorIs(t, err, ErrInvalidChannelName)
+}
+
+func TestChannelNameParseValid(t *testing.T) {
+	cn, err := ChannelNameParse("test")
+	require.NoError(t, err)
+	require.Equal(t, "test", cn.String())
+}
+
+func TestChannelDescParseTooLong(t *testing.T) {
+	_, err := ChannelDescriptionParse(strings.Repeat("x", 129))
+	require.ErrorIs(t, err, ErrInvalidChannelDesc)
+}
+
+func TestBlockRefIsZero(t *testing.T) {
+	require.True(t, BlockRefZero.IsZero())
+	require.False(t, BlockRefFromParts(1, 0).IsZero())
+	require.False(t, BlockRefFromParts(0, 1).IsZero())
+}
+
+// --- Phase 3: Encryption edge cases ---
+
+func seedFilled(b byte) Seed {
+	var s [32]byte
+	for i := range s {
+		s[i] = b
+	}
+	return SeedFromBytes(s)
+}
+
+func TestDecryptWrongKeyFails(t *testing.T) {
+	seedA := seedFilled(0xAA)
+	seedB := seedFilled(0xBB)
+	recipientPub := PublicFromSeed(seedA)
+
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
+	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
+
+	ct, err := Encrypt(PlaintextFromBytes([]byte("hello")), recipientPub, nonce, seedB)
+	require.NoError(t, err)
+
+	wrongScalar := Sr25519SigningScalar(seedB)
+	_, err = Decrypt(ct, nonce, wrongScalar)
+	require.Error(t, err)
+}
+
+func TestEncryptDecryptAsSender(t *testing.T) {
+	seedA := seedFilled(0xAA)
+	seedB := seedFilled(0xBB)
+	recipientPub := PublicFromSeed(seedB)
+
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
+	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
+
+	msg := []byte("round-trip sender")
+	ct, err := Encrypt(PlaintextFromBytes(msg), recipientPub, nonce, seedA)
+	require.NoError(t, err)
+
+	pt, err := DecryptAsSender(ct, nonce, seedA)
+	require.NoError(t, err)
+	require.Equal(t, msg, pt.Bytes())
+}
+
+func TestUnsealRecipient(t *testing.T) {
+	seedA := seedFilled(0xAA)
+	seedB := seedFilled(0xBB)
+	recipientPub := PublicFromSeed(seedB)
+
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
+	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
+
+	ct, err := Encrypt(PlaintextFromBytes([]byte("unseal")), recipientPub, nonce, seedA)
+	require.NoError(t, err)
+
+	unsealed, err := UnsealRecipient(ct, nonce, seedA)
+	require.NoError(t, err)
+	require.Equal(t, recipientPub.Bytes(), unsealed.Bytes())
+}
+
+func TestGroupEncryptSingleMember(t *testing.T) {
+	seedA := seedFilled(0xAA)
+	memberPub := PublicFromSeed(seedA)
+	members := []Pubkey{memberPub}
+
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
+	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
+
+	msg := []byte("group-single")
+	ephPubkey, capsules, ct, err := EncryptForGroup(PlaintextFromBytes(msg), members, nonce, seedA)
+	require.NoError(t, err)
+
+	ephBytes := ephPubkey.Bytes()
+	content := make([]byte, 0, 32+len(capsules.Bytes())+len(ct.Bytes()))
+	content = append(content, ephBytes[:]...)
+	content = append(content, capsules.Bytes()...)
+	content = append(content, ct.Bytes()...)
+
+	scalar := Sr25519SigningScalar(seedA)
+	pt, err := DecryptFromGroup(content, scalar, nonce, len(members))
+	require.NoError(t, err)
+	require.Equal(t, msg, pt.Bytes())
+}
+
+func TestGroupDecryptWrongKeyFails(t *testing.T) {
+	seedA := seedFilled(0xAA)
+	seedC := seedFilled(0xCC)
+	memberPub := PublicFromSeed(seedA)
+	members := []Pubkey{memberPub}
+
+	var nb [12]byte
+	_, err := rand.Read(nb[:])
+	require.NoError(t, err)
+	nonce := NonceFromBytes(nb)
+
+	ephPubkey, capsules, ct, err := EncryptForGroup(PlaintextFromBytes([]byte("secret")), members, nonce, seedA)
+	require.NoError(t, err)
+
+	ephBytes := ephPubkey.Bytes()
+	content := make([]byte, 0, 32+len(capsules.Bytes())+len(ct.Bytes()))
+	content = append(content, ephBytes[:]...)
+	content = append(content, capsules.Bytes()...)
+	content = append(content, ct.Bytes()...)
+
+	wrongScalar := Sr25519SigningScalar(seedC)
+	_, err = DecryptFromGroup(content, wrongScalar, nonce, len(members))
+	require.Error(t, err)
+}
+
+// --- Phase 4: Wire format ---
+
+func TestDecodeRemarkEmpty(t *testing.T) {
+	_, err := DecodeRemark(RemarkBytesFromBytes(nil))
+	require.Error(t, err)
+}
+
+func TestIsSampRemarkFalse(t *testing.T) {
+	_, err := ContentTypeFromByte(0x20)
+	require.Error(t, err)
+
+	_, err = ContentTypeFromByte(0x00)
+	require.Error(t, err)
+}
+
+func TestChannelCreateRoundTrip(t *testing.T) {
+	name, err := ChannelNameParse("mychan")
+	require.NoError(t, err)
+	desc, err := ChannelDescriptionParse("a channel")
+	require.NoError(t, err)
+
+	remark := EncodeChannelCreate(name, desc)
+	r, err := DecodeRemark(remark)
+	require.NoError(t, err)
+
+	cc, ok := r.(ChannelCreateRemark)
+	require.True(t, ok)
+	require.Equal(t, "mychan", cc.Name.String())
+	require.Equal(t, "a channel", cc.Description.String())
+}
+
+func TestDecodeThreadContentTruncated(t *testing.T) {
+	short := PlaintextFromBytes([]byte{0x01, 0x02})
+	_, _, _, _, err := DecodeThreadContent(short)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
