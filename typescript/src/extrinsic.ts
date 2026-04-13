@@ -146,7 +146,6 @@ export function extractCall(extrinsicBytes: ExtrinsicBytes): ExtractedCall | nul
   }
 
   let offset = SIGNED_HEADER_LEN;
-  if (offset >= payload.length) return null;
   if (payload[offset] !== 0x00) {
     offset += 2;
   } else {
@@ -167,8 +166,6 @@ export function extractCall(extrinsicBytes: ExtrinsicBytes): ExtractedCall | nul
   const pallet = PalletIdx.from(payload[offset]!);
   const call = CallIdx.from(payload[offset + 1]!);
   offset += 2;
-
-  if (offset > payload.length) return null;
 
   return { pallet, call, args: CallArgs.fromBytes(payload.slice(offset)) };
 }
