@@ -6,7 +6,7 @@ Rust implementation of [SAMP](https://github.com/samp-org/samp) (Substrate Accou
 
 ```toml
 [dependencies]
-samp = "1.1"
+samp-sdk = "1.1"
 ```
 
 ## Usage

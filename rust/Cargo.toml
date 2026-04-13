@@ -1,5 +1,5 @@
 [package]
-name = "samp"
+name = "samp-sdk"
 version = "1.1.0"
 edition = "2021"
 description = "Substrate Account Messaging Protocol — reference implementation"
@@ -7,6 +7,9 @@ license = "MIT"
 repository = "https://github.com/samp-org/samp"
 keywords = ["substrate", "messaging", "sr25519", "encryption", "ristretto255"]
 categories = ["cryptography"]
+
+[lib]
+name = "samp"
 
 [dependencies]
 schnorrkel = "0.11"
