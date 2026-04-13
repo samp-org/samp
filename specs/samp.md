@@ -399,10 +399,10 @@ Group encryption overhead per member: 33 bytes (view_tag 1 + wrapped_key 32) + s
 
 | Language | Path | Version |
 |---|---|---|
-| Rust | `rust/` (samp crate) | 1.0.0 |
-| Python | `python/samp/` | 1.0.0 |
-| Go | `go/` | 1.0.0 |
-| TypeScript | `typescript/` (@samp-org/samp) | 1.0.0 |
+| Rust | `rust/` (samp crate) | 1.1.0 |
+| Python | `python/samp/` | 1.1.0 |
+| Go | `go/` | 1.1.0 |
+| TypeScript | `typescript/` (@samp-org/samp) | 1.1.0 |
 
 ## Changelog
 
