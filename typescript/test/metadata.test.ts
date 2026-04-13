@@ -121,4 +121,59 @@ describe("error table", () => {
     const t = new ErrorTable();
     expect(t.humanize(99, 99)).toBeNull();
   });
+
+  it("translates Module error in raw string", () => {
+    const t = new ErrorTable();
+    t.byIdx.set("5:2", { pallet: "Balances", variant: "InsufficientBalance", doc: "not enough" });
+    const raw = "Module { index: 5, error: [2, 0, 0, 0] }";
+    expect(t.humanizeRpcError(raw)).toEqual("Balances::InsufficientBalance: not enough");
+  });
+
+  it("passes through when Module present but index > 255", () => {
+    const t = new ErrorTable();
+    const raw = "Module { index: 300, error: [2, 0, 0, 0] }";
+    expect(t.humanizeRpcError(raw)).toEqual(raw);
+  });
+
+  it("passes through when Module present but missing index", () => {
+    const t = new ErrorTable();
+    const raw = "Module { error: [2, 0, 0, 0] }";
+    expect(t.humanizeRpcError(raw)).toEqual(raw);
+  });
+
+  it("handles malformed JSON in RPC error gracefully", () => {
+    const t = new ErrorTable();
+    const raw = 'RPC error: {"code":1010, "data": broken}';
+    expect(t.humanizeRpcError(raw)).toEqual(raw);
+  });
+
+  it("handles transaction failed prefix", () => {
+    const t = new ErrorTable();
+    const raw = 'transaction failed: {"code":1010,"message":"Bad tx"}';
+    expect(t.humanizeRpcError(raw)).toEqual("Bad tx");
+  });
+
+  it("humanize with empty doc omits colon", () => {
+    const t = new ErrorTable();
+    t.byIdx.set("1:0", { pallet: "System", variant: "Err", doc: "" });
+    expect(t.humanize(1, 0)).toEqual("System::Err");
+  });
+
+  it("trimToJson handles escaped quotes", () => {
+    const t = new ErrorTable();
+    const raw = 'RPC error: {"data":"value with \\"escaped\\" quotes","message":"msg"}';
+    expect(t.humanizeRpcError(raw)).toEqual('value with "escaped" quotes');
+  });
+
+  it("trimToJson returns null for unclosed brace", () => {
+    const t = new ErrorTable();
+    const raw = 'RPC error: {"code":1010';
+    expect(t.humanizeRpcError(raw)).toEqual(raw);
+  });
+
+  it("humanizeRpcError with no data and no message falls through", () => {
+    const t = new ErrorTable();
+    const raw = 'RPC error: {"code":1010}';
+    expect(t.humanizeRpcError(raw)).toEqual(raw);
+  });
 });
