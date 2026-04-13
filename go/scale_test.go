@@ -135,6 +135,29 @@ func TestDecodeBytesReturnsErrorWhenPayloadTruncated(t *testing.T) {
 	require.ErrorIs(t, err, ErrInsufficientData)
 }
 
+func TestDecodeCompactBigIntModeTruncatedPayload(t *testing.T) {
+	// BigInt mode: low 2 bits = 0b11, upper 6 bits encode (n-4) where n is byte count.
+	// 0x13 = 0b00010011 -> mode=0b11, n = (0x13>>2)+4 = 4+4 = 8 bytes follow.
+	// But we only provide 3 bytes after the prefix.
+	_, _, err := DecodeCompact([]byte{0x13, 0x01, 0x02, 0x03})
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeBytesCompactOverflow(t *testing.T) {
+	// Compact length that would overflow int when computing end offset.
+	// A compact-encoded very large value. We use BigInt mode with n=8 (max).
+	// 0x13 means 8 bytes follow. Set them to large values.
+	data := []byte{0x13, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F}
+	_, _, err := DecodeBytes(data)
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
+func TestDecodeBytesForwardDecodeCompactError(t *testing.T) {
+	// Empty input should forward the DecodeCompact error.
+	_, _, err := DecodeBytes([]byte{})
+	require.ErrorIs(t, err, ErrInsufficientData)
+}
+
 func TestMatchesE2EScaleVectorsFixture(t *testing.T) {
 	path := filepath.Join("..", "e2e", "scale-vectors.json")
 	raw, err := os.ReadFile(path)
