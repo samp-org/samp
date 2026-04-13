@@ -124,8 +124,6 @@ def extract_call(extrinsic_bytes: ExtrinsicBytes) -> Optional[ExtractedCall]:
         return None
 
     offset = SIGNED_HEADER_LEN
-    if offset >= len(payload):
-        return None
     if payload[offset] != 0x00:
         offset += 2
     else:
@@ -148,9 +146,6 @@ def extract_call(extrinsic_bytes: ExtrinsicBytes) -> Optional[ExtractedCall]:
     pallet = payload[offset]
     call = payload[offset + 1]
     offset += 2
-
-    if offset > len(payload):
-        return None
 
     return ExtractedCall(
         pallet=pallet_idx_from_int(pallet),
