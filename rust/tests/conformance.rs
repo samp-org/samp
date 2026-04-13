@@ -2390,3 +2390,36 @@ fn storage_layout_data_field_triggers_composite_byte_size() {
     let _ = metadata.find_call_index("Staking", "bond");
     let _ = metadata.find_call_index("Session", "set_keys");
 }
+
+#[test]
+fn decrypt_from_group_corrupted_ciphertext_returns_error() {
+    let seed_a = Seed::from_bytes([0xAA; 32]);
+    let seed_b = Seed::from_bytes([0xBB; 32]);
+    let pub_a = encryption::public_from_seed(&seed_a);
+    let nonce = Nonce::from_bytes([0x01; 12]);
+    let pt = Plaintext::from_bytes(b"hello".to_vec());
+
+    let (eph, capsules, ct) =
+        encryption::encrypt_for_group(&pt, &[pub_a], &nonce, &seed_b).unwrap();
+
+    let mut content = Vec::new();
+    content.extend_from_slice(eph.as_bytes());
+    content.extend_from_slice(capsules.as_bytes());
+    // Corrupt the ciphertext
+    let mut bad_ct = ct.as_bytes().to_vec();
+    for b in &mut bad_ct {
+        *b ^= 0xFF;
+    }
+    content.extend_from_slice(&bad_ct);
+
+    let scalar_a = encryption::sr25519_signing_scalar(&seed_a);
+    let result = encryption::decrypt_from_group(&content, &nonce, &scalar_a, None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn ss58_decode_too_short_returns_error() {
+    // A base58 string that decodes to valid prefix but insufficient length
+    let result = samp::ss58::decode("111");
+    assert!(result.is_err());
+}
