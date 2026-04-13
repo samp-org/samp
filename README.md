@@ -71,7 +71,7 @@ remark = samp.EncodeEncrypted(0x11, tag, nonce, ciphertext)
 **TypeScript**
 
 ```typescript
-import { encodePublic, encodeEncrypted, encrypt, computeViewTag } from "@samp-org/samp";
+import { encodePublic, encodeEncrypted, encrypt, computeViewTag } from "samp-core";
 
 const remark = encodePublic(recipient, new TextEncoder().encode("Hello from SAMP"));
 
@@ -90,15 +90,13 @@ const encRemark = encodeEncrypted(0x11, tag, nonce, ciphertext);
 
 ```toml
 [dependencies]
-samp = { git = "https://github.com/samp-org/samp", subdirectory = "rust" }
+samp-core = "1.1"
 ```
 
-**Python** (requires Rust toolchain for the native crypto extension)
+**Python**
 
 ```
-git clone https://github.com/samp-org/samp && cd samp
-cd python/samp-crypto && pip install maturin && maturin develop && cd ../..
-cd python && pip install -e .
+pip install samp-core
 ```
 
 **Go**
@@ -110,7 +108,7 @@ go get github.com/samp-org/samp/go
 **TypeScript**
 
 ```
-npm install github:samp-org/samp
+npm install samp-core
 ```
 
 </details>
