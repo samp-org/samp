@@ -1,11 +1,11 @@
-# @samp-org/samp
+# samp-core
 
 TypeScript implementation of [SAMP](https://github.com/samp-org/samp) (Substrate Account Messaging Protocol).
 
 ## Install
 
 ```
-npm install github:samp-org/samp
+npm install samp-core
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ import {
   ContentType, Nonce, Plaintext, Pubkey, Seed,
   computeViewTag, decodeRemark, decrypt, encodeEncrypted, encodePublic,
   encrypt, sr25519SigningScalar,
-} from "@samp-org/samp";
+} from "samp-core";
 
 const senderSeed = Seed.fromBytes(new Uint8Array(32));   // your sr25519 seed
 const recipientPub = Pubkey.fromBytes(new Uint8Array(32)); // recipient's sr25519 public key
