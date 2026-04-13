@@ -53,3 +53,19 @@ def test_ss58_prefix_boundary():
     assert ss58_prefix_from_int(63) == 63
     with pytest.raises(SampError):
         ss58_prefix_from_int(64)
+
+
+def test_ss58_decode_invalid_base58_char():
+    with pytest.raises(SampError):
+        Ss58Address.parse("0OIl" + "a" * 44)
+
+
+def test_ss58_decode_high_unicode():
+    with pytest.raises(SampError):
+        Ss58Address.parse("\u00ff" * 48)
+
+
+def test_ss58_encode_empty_data():
+    from samp.ss58 import _bs58_encode
+
+    assert _bs58_encode(b"") == ""

@@ -212,3 +212,108 @@ def test_matches_e2e_extrinsic_vectors_fixture() -> None:
 
         expected = bytes.fromhex(case["expected_extrinsic"][2:])
         assert built == expected, f"case {case['label']} did not match fixture"
+
+
+def test_extract_call_returns_none_for_empty_input() -> None:
+    assert extract_call(extrinsic_bytes_from_bytes(b"")) is None
+
+
+def test_extract_call_returns_none_for_truncated_payload() -> None:
+    ext = build_signed_extrinsic(
+        pallet_idx_from_int(0),
+        call_idx_from_int(7),
+        call_args_from_bytes(build_remark_args(b"x")),
+        ALICE_PUBLIC_KEY,
+        fixed_signer,
+        extrinsic_nonce_from_int(0),
+        make_chain_params(),
+    )
+    decoded = decode_compact(ext)
+    assert decoded is not None
+    _, prefix_len = decoded
+    truncated = ext[:prefix_len + 50]
+    assert extract_call(extrinsic_bytes_from_bytes(truncated)) is None
+
+
+def test_extract_call_non_immortal_era() -> None:
+    ext = build_signed_extrinsic(
+        pallet_idx_from_int(0),
+        call_idx_from_int(7),
+        call_args_from_bytes(build_remark_args(b"hello")),
+        ALICE_PUBLIC_KEY,
+        fixed_signer,
+        extrinsic_nonce_from_int(0),
+        make_chain_params(),
+    )
+    decoded = decode_compact(ext)
+    assert decoded is not None
+    _, prefix_len = decoded
+    payload = bytearray(ext[prefix_len:])
+    from samp.extrinsic import SIGNED_HEADER_LEN
+    payload[SIGNED_HEADER_LEN] = 0x01
+    modified = ext[:prefix_len] + bytes(payload)
+    result = extract_call(extrinsic_bytes_from_bytes(modified))
+    assert result is not None
+
+
+def test_extract_call_truncated_at_nonce() -> None:
+    ext = build_signed_extrinsic(
+        pallet_idx_from_int(0),
+        call_idx_from_int(7),
+        call_args_from_bytes(build_remark_args(b"x")),
+        ALICE_PUBLIC_KEY,
+        fixed_signer,
+        extrinsic_nonce_from_int(0),
+        make_chain_params(),
+    )
+    decoded = decode_compact(ext)
+    assert decoded is not None
+    _, prefix_len = decoded
+    payload = bytearray(ext[prefix_len:])
+    from samp.extrinsic import SIGNED_HEADER_LEN
+    truncated_payload = bytes(payload[:SIGNED_HEADER_LEN + 1])
+    length_prefix = encode_compact(len(truncated_payload))
+    result = extract_call(extrinsic_bytes_from_bytes(length_prefix + truncated_payload))
+    assert result is None
+
+
+def test_extract_call_truncated_at_tip() -> None:
+    ext = build_signed_extrinsic(
+        pallet_idx_from_int(0),
+        call_idx_from_int(7),
+        call_args_from_bytes(build_remark_args(b"x")),
+        ALICE_PUBLIC_KEY,
+        fixed_signer,
+        extrinsic_nonce_from_int(0),
+        make_chain_params(),
+    )
+    decoded = decode_compact(ext)
+    assert decoded is not None
+    _, prefix_len = decoded
+    payload = bytearray(ext[prefix_len:])
+    from samp.extrinsic import SIGNED_HEADER_LEN
+    truncated_payload = bytes(payload[:SIGNED_HEADER_LEN + 2])
+    length_prefix = encode_compact(len(truncated_payload))
+    result = extract_call(extrinsic_bytes_from_bytes(length_prefix + truncated_payload))
+    assert result is None
+
+
+def test_extract_call_truncated_at_pallet_call() -> None:
+    ext = build_signed_extrinsic(
+        pallet_idx_from_int(0),
+        call_idx_from_int(7),
+        call_args_from_bytes(build_remark_args(b"x")),
+        ALICE_PUBLIC_KEY,
+        fixed_signer,
+        extrinsic_nonce_from_int(0),
+        make_chain_params(),
+    )
+    decoded = decode_compact(ext)
+    assert decoded is not None
+    _, prefix_len = decoded
+    payload = bytearray(ext[prefix_len:])
+    from samp.extrinsic import SIGNED_HEADER_LEN
+    truncated_payload = bytes(payload[:SIGNED_HEADER_LEN + 4])
+    length_prefix = encode_compact(len(truncated_payload))
+    result = extract_call(extrinsic_bytes_from_bytes(length_prefix + truncated_payload))
+    assert result is None
