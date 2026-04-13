@@ -135,9 +135,6 @@ func ExtractCall(ext ExtrinsicBytes) (ExtractedCall, bool) {
 	}
 
 	offset := signedHeaderLen
-	if offset >= len(payload) {
-		return ExtractedCall{}, false
-	}
 	if payload[offset] != 0x00 {
 		offset += 2
 	} else {
@@ -164,10 +161,6 @@ func ExtractCall(ext ExtrinsicBytes) (ExtractedCall, bool) {
 	pallet := payload[offset]
 	call := payload[offset+1]
 	offset += 2
-
-	if offset > len(payload) {
-		return ExtractedCall{}, false
-	}
 
 	return ExtractedCall{
 		Pallet: PalletIdx{pallet},

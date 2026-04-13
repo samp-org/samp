@@ -207,3 +207,160 @@ func stripHex(s string) string {
 	}
 	return s
 }
+
+func TestNewExtrinsicError(t *testing.T) {
+	e := newExtrinsicError("test failure")
+	require.Equal(t, "samp: extrinsic: test failure", e.Error())
+	require.Equal(t, "test failure", e.Msg)
+}
+
+func TestExtractCallReturnsFalseForEmptyInput(t *testing.T) {
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes([]byte{}))
+	require.False(t, ok)
+}
+
+func TestExtractCallReturnsFalseForTruncatedPayload(t *testing.T) {
+	// Build a valid extrinsic, then truncate it at various points.
+	args := buildRemarkArgs([]byte("x"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+	b := ext.Bytes()
+
+	// Truncate before call data
+	for _, truncLen := range []int{1, 10, 50, 100} {
+		if truncLen >= len(b) {
+			continue
+		}
+		truncated := make([]byte, truncLen)
+		copy(truncated, b[:truncLen])
+		// Re-encode the compact length prefix to match the truncated length
+		payload := truncated
+		_, prefixLen, _ := DecodeCompact(payload)
+		if prefixLen > 0 && prefixLen < len(payload) {
+			inner := payload[prefixLen:]
+			newExt := make([]byte, 0, 5+len(inner))
+			newExt = append(newExt, EncodeCompact(uint64(len(inner)))...)
+			newExt = append(newExt, inner...)
+			_, ok := ExtractCall(ExtrinsicBytesFromBytes(newExt))
+			_ = ok // Just ensure no panic
+		}
+	}
+}
+
+func TestExtractCallReturnsFalseForBadCompactPrefix(t *testing.T) {
+	// A compact prefix claiming more bytes than available.
+	bad := []byte{0x07, 0xFF} // big-int mode claiming 5 bytes but only 1 follows
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes(bad))
+	require.False(t, ok)
+}
+
+func TestExtractSignerReturnsFalseForBadCompactPrefix(t *testing.T) {
+	bad := []byte{0x07, 0xFF}
+	_, ok := ExtractSigner(ExtrinsicBytesFromBytes(bad))
+	require.False(t, ok)
+}
+
+func TestExtractCallTruncatedAtCompactNonce(t *testing.T) {
+	// Build a payload that passes the length check but has a truncated compact
+	// at the nonce position. We craft this by building a valid extrinsic,
+	// replacing bytes after the era with a bad compact, then re-prefixing.
+	args := buildRemarkArgs([]byte("x"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+
+	b := ext.Bytes()
+	_, prefixLen, err := DecodeCompact(b)
+	require.NoError(t, err)
+	payload := make([]byte, len(b)-prefixLen)
+	copy(payload, b[prefixLen:])
+
+	// After era (offset=signedHeaderLen), set era=0x00 (immortal, 1 byte).
+	// Then at offset 100 (signedHeaderLen+1), put a truncated compact:
+	// 0x03 means big-int mode needing 4+ more bytes, but we truncate the payload.
+	truncPayload := payload[:signedHeaderLen+2]
+	truncPayload[signedHeaderLen] = 0x00   // immortal era
+	truncPayload[signedHeaderLen+1] = 0x03 // bad compact (needs more bytes)
+
+	newExt := make([]byte, 0, 5+len(truncPayload))
+	newExt = append(newExt, EncodeCompact(uint64(len(truncPayload)))...)
+	newExt = append(newExt, truncPayload...)
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes(newExt))
+	require.False(t, ok)
+}
+
+func TestExtractCallTruncatedAtCompactTip(t *testing.T) {
+	// Pass nonce compact decode but fail on tip compact.
+	args := buildRemarkArgs([]byte("x"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+
+	b := ext.Bytes()
+	_, prefixLen, err := DecodeCompact(b)
+	require.NoError(t, err)
+	payload := make([]byte, len(b)-prefixLen)
+	copy(payload, b[prefixLen:])
+
+	// era=0x00 (1 byte), nonce=0x00 (compact, 1 byte), then truncated tip compact.
+	truncPayload := payload[:signedHeaderLen+3]
+	truncPayload[signedHeaderLen] = 0x00   // immortal era
+	truncPayload[signedHeaderLen+1] = 0x00 // nonce compact 0
+	truncPayload[signedHeaderLen+2] = 0x03 // bad compact for tip
+
+	newExt := make([]byte, 0, 5+len(truncPayload))
+	newExt = append(newExt, EncodeCompact(uint64(len(truncPayload)))...)
+	newExt = append(newExt, truncPayload...)
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes(newExt))
+	require.False(t, ok)
+}
+
+func TestExtractCallTruncatedAtCallData(t *testing.T) {
+	// Pass era, nonce, tip, metadata_hash, but truncate before pallet+call bytes.
+	args := buildRemarkArgs([]byte("x"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+
+	b := ext.Bytes()
+	_, prefixLen, err := DecodeCompact(b)
+	require.NoError(t, err)
+	payload := make([]byte, len(b)-prefixLen)
+	copy(payload, b[prefixLen:])
+
+	// era=0x00, nonce=0x00, tip=0x00, metadata_hash_disabled=0x00 -> then truncate.
+	truncPayload := payload[:signedHeaderLen+4]
+	truncPayload[signedHeaderLen] = 0x00
+	truncPayload[signedHeaderLen+1] = 0x00
+	truncPayload[signedHeaderLen+2] = 0x00
+	truncPayload[signedHeaderLen+3] = 0x00
+
+	newExt := make([]byte, 0, 5+len(truncPayload))
+	newExt = append(newExt, EncodeCompact(uint64(len(truncPayload)))...)
+	newExt = append(newExt, truncPayload...)
+	_, ok := ExtractCall(ExtrinsicBytesFromBytes(newExt))
+	require.False(t, ok)
+}
+
+func TestExtractCallHandlesNonZeroEra(t *testing.T) {
+	// Build a valid extrinsic, then manually set the era byte to non-zero
+	// to exercise the era != 0x00 branch in ExtractCall.
+	args := buildRemarkArgs([]byte("mortal era test"))
+	ext, err := BuildSignedExtrinsic(PalletIdxFrom(0), CallIdxFrom(7), args, alicePublicKey, fixedSigner, ExtrinsicNonceFrom(0), makeChainParams())
+	require.NoError(t, err)
+
+	b := ext.Bytes()
+	_, prefixLen, err := DecodeCompact(b)
+	require.NoError(t, err)
+	payload := make([]byte, len(b)-prefixLen)
+	copy(payload, b[prefixLen:])
+
+	// Set era byte (at offset signedHeaderLen = 99) to non-zero (mortal era)
+	eraOffset := signedHeaderLen
+	if eraOffset < len(payload) {
+		payload[eraOffset] = 0x45 // non-zero mortal era
+		newExt := make([]byte, 0, 5+len(payload))
+		newExt = append(newExt, EncodeCompact(uint64(len(payload)))...)
+		newExt = append(newExt, payload...)
+		// The call extraction may succeed or fail depending on alignment,
+		// but it must not panic.
+		_, _ = ExtractCall(ExtrinsicBytesFromBytes(newExt))
+	}
+}

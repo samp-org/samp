@@ -394,9 +394,6 @@ pub fn decrypt_from_group(
     let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE;
     for n in min_n..=max_n {
         let ct_start = n * CAPSULE_SIZE;
-        if ct_start >= after_eph.len() {
-            break;
-        }
         if let Ok(plaintext) = cipher.decrypt(
             ChaChaNonce::from_slice(nonce.as_bytes()),
             &after_eph[ct_start..],

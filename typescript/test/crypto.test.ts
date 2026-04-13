@@ -7,6 +7,7 @@ import {
   decrypt,
   decryptAsSender,
   decryptFromGroup,
+  deriveGroupEphemeral,
   encrypt,
   encryptForGroup,
   publicFromSeed,
@@ -71,5 +72,69 @@ describe("group encrypt single member", () => {
 
     const recovered = decryptFromGroup(content, recipientScalar, NONCE, 1);
     expect(new TextDecoder().decode(recovered)).toBe("group msg");
+  });
+});
+
+describe("deriveGroupEphemeral", () => {
+  it("returns 32-byte scalar", () => {
+    const result = deriveGroupEphemeral(SENDER_SEED, NONCE);
+    expect(result.length).toBe(32);
+  });
+
+  it("deterministic for same inputs", () => {
+    const a = deriveGroupEphemeral(SENDER_SEED, NONCE);
+    const b = deriveGroupEphemeral(SENDER_SEED, NONCE);
+    expect(Buffer.from(a)).toEqual(Buffer.from(b));
+  });
+});
+
+describe("decryptFromGroup wrong knownN", () => {
+  it("throws with wrong knownN (too large)", () => {
+    const recipientPub = publicFromSeed(RECIPIENT_SEED);
+    const recipientScalar = sr25519SigningScalar(RECIPIENT_SEED);
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("test"));
+
+    const { ephPubkey, capsules, ciphertext } = encryptForGroup(
+      pt,
+      [recipientPub],
+      NONCE,
+      SENDER_SEED,
+    );
+
+    const content = new Uint8Array(ephPubkey.length + capsules.length + ciphertext.length);
+    content.set(ephPubkey, 0);
+    content.set(capsules, ephPubkey.length);
+    content.set(ciphertext, ephPubkey.length + capsules.length);
+
+    expect(() => decryptFromGroup(content, recipientScalar, NONCE, 999)).toThrow(SampError);
+  });
+});
+
+describe("decryptFromGroup loop exhaustion", () => {
+  it("throws when no valid capsule found (non-member)", () => {
+    const senderPub = publicFromSeed(SENDER_SEED);
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("secret"));
+
+    const { ephPubkey, capsules, ciphertext } = encryptForGroup(
+      pt,
+      [senderPub],
+      NONCE,
+      SENDER_SEED,
+    );
+
+    const content = new Uint8Array(ephPubkey.length + capsules.length + ciphertext.length);
+    content.set(ephPubkey, 0);
+    content.set(capsules, ephPubkey.length);
+    content.set(ciphertext, ephPubkey.length + capsules.length);
+
+    const thirdPartyScalar = sr25519SigningScalar(Seed.fromBytes(new Uint8Array(32).fill(0xdd)));
+    expect(() => decryptFromGroup(content, thirdPartyScalar, NONCE)).toThrow(SampError);
+  });
+});
+
+describe("decryptFromGroup insufficient data", () => {
+  it("throws on content < 32 bytes", () => {
+    const scalar = sr25519SigningScalar(SENDER_SEED);
+    expect(() => decryptFromGroup(new Uint8Array(10), scalar, NONCE)).toThrow(SampError);
   });
 });

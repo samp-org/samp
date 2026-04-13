@@ -103,3 +103,12 @@ def test_matches_e2e_scale_vectors_fixture():
         assert decoded is not None
         assert decoded[0] == value
         assert decoded[1] == case["consumed"]
+
+
+def test_encode_compact_negative_raises():
+    with pytest.raises(ValueError):
+        encode_compact(-1)
+
+
+def test_decode_bytes_returns_none_on_empty():
+    assert decode_bytes(b"") is None

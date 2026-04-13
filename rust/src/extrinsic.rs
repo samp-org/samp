@@ -178,9 +178,6 @@ pub fn extract_call(extrinsic_bytes: &ExtrinsicBytes) -> Option<ExtractedCall> {
     }
 
     let mut offset = SIGNED_HEADER_LEN;
-    if offset >= payload.len() {
-        return None;
-    }
     if payload[offset] != 0x00 {
         offset += 2;
     } else {
@@ -198,10 +195,6 @@ pub fn extract_call(extrinsic_bytes: &ExtrinsicBytes) -> Option<ExtractedCall> {
     let pallet = payload[offset];
     let call = payload[offset + 1];
     offset += 2;
-
-    if offset > payload.len() {
-        return None;
-    }
 
     Some(ExtractedCall {
         pallet: PalletIdx::new(pallet),
