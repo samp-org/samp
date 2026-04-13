@@ -6,7 +6,7 @@ Rust implementation of [SAMP](https://github.com/samp-org/samp) (Substrate Accou
 
 ```toml
 [dependencies]
-samp = { git = "https://github.com/samp-org/samp", subdirectory = "rust" }
+samp = "1.1"
 ```
 
 ## Usage
@@ -80,4 +80,4 @@ let plaintext = decrypt(&ct, &n, &scalar).unwrap();
 cargo test
 ```
 
-46 tests: 18 round-trip, 20 conformance (against shared `e2e/test-vectors.json`), 8 property-based (proptest).
+248 tests: conformance, round-trip, property-based (proptest), scale, metadata, extrinsic. 97%+ line coverage.
