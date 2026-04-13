@@ -1,17 +1,35 @@
-# SAMP — Substrate Account Messaging Protocol
+<h1 align="center">SAMP - Substrate Account Messaging Protocol</h1>
 
-Open protocol for signed, encrypted messaging between accounts on Substrate blockchains. Your wallet address is your identity. No servers, no registration, no phone numbers.
+<p align="center">
+  <strong>Your wallet address is your identity.</strong>
+</p>
 
-Messages are `system.remark_with_event` extrinsics. The extrinsic signature authenticates the sender. The account's sr25519 public key doubles as the ECDH encryption key — encrypting to someone requires only their SS58 address.
+<p align="center">
+  <a href="https://codecov.io/gh/samp-org/samp"><img src="https://codecov.io/gh/samp-org/samp/graph/badge.svg" alt="codecov" /></a>
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How it works</a> •
+  <a href="#message-types">Message types</a> •
+  <a href="#sdks">SDKs</a> •
+  <a href="#specification">Specification</a> •
+  <a href="#mirrors">Mirrors</a>
+</p>
+
+---
+
+Open protocol for signed, encrypted messaging between accounts on any Substrate blockchain. No servers, no registration.
+
+Messages are `system.remark_with_event` extrinsics. The extrinsic signature authenticates the sender. The account's sr25519 public key doubles as the ECDH encryption key: encrypting to someone requires only their address.
 
 ```python
 from samp import encode_public, encode_encrypted, encrypt, compute_view_tag, sr25519_signing_scalar
 import os
 
-# Public message — anyone can read it
-remark = encode_public(recipient_pubkey, b"Hello from SAMP")
+# Public message
+remark = encode_public(recipient_pubkey, "Hello from SAMP")
 
-# Encrypted message — only the recipient can read it
+# Encrypted message
 nonce = os.urandom(12)  # 12-byte encryption nonce (not the Substrate tx nonce)
 ciphertext = encrypt(b"Private message", recipient_pubkey, nonce, sender_seed)
 view_tag = compute_view_tag(sender_seed, recipient_pubkey, nonce)
@@ -131,10 +149,10 @@ Four implementations. Same API surface. Same byte output. All test against share
 
 | Language | Path | Tests |
 |----------|------|-------|
-| Rust | [`rust/`](rust/) | `cargo test` (46 tests including property-based) |
-| Python | [`python/`](python/) | `pytest tests/ -v` |
+| Rust | [`rust/`](rust/) | `cargo test` (216 tests) |
+| Python | [`python/`](python/) | `pytest tests/` (139 tests) |
 | Go | [`go/`](go/) | `go test ./...` |
-| TypeScript | [`typescript/`](typescript/) | `npm test` |
+| TypeScript | [`typescript/`](typescript/) | `npm test` (120 tests) |
 
 ## Repository layout
 
@@ -149,9 +167,9 @@ e2e/            Shared test vectors and deterministic generator
 
 ## Mirrors
 
-A SAMP mirror indexes remarks from a Substrate node and serves them via HTTP API. Clients use mirrors to fetch historical messages without scanning the full chain.
+A SAMP mirror indexes remarks from a Substrate node and serves them via HTTP API. Clients use mirrors to discover messages without scanning the full chain. Mirrors never see decrypted content. Clients verify all data against the chain.
 
-The [`samp-org/mirror-template`](https://github.com/samp-org/mirror-template) repository is a ready-to-deploy mirror that works with any Substrate chain. It connects to a node, indexes all SAMP remarks into SQLite, and exposes a REST API for querying by content type, sender, or channel.
+The [`samp-org/mirror-template`](https://github.com/samp-org/mirror-template) is a ready-to-deploy mirror for any Substrate chain. It indexes all SAMP remarks into SQLite and exposes a REST API for querying by content type, sender, or channel.
 
 ## Contributing
 
@@ -159,26 +177,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Spec changes go in separate PRs from cod
 
 ## License
 
-```
-MIT License
-
-Copyright (c) 2025 Maciej Kula
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+MIT. See [LICENSE](LICENSE).

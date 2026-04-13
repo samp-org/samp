@@ -7,21 +7,50 @@ import (
 	"errors"
 	"io"
 
+	schnorrkel "github.com/ChainSafe/go-schnorrkel"
 	"github.com/gtank/ristretto255"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 )
 
-const EncryptedOverhead = 80 // ephemeral(32) + sealed_to(32) + auth_tag(16)
+const EncryptedOverhead = 80
 
 var (
 	ErrDecryptionFailed = errors.New("samp: decryption failed")
 	ErrInvalidPoint     = errors.New("samp: invalid ristretto255 point")
 )
 
-// Sr25519SigningScalar derives the sr25519 signing scalar from a 32-byte seed.
-func Sr25519SigningScalar(seed [32]byte) *ristretto255.Scalar {
-	h := sha512.Sum512(seed[:])
+// WHY: the single crypto boundary that turns a 32-byte ViewScalar into a
+// ristretto255.Scalar. Every decrypt path funnels through here.
+func viewScalarToRistretto(v ViewScalar) *ristretto255.Scalar {
+	raw := v.b
+	s := ristretto255.NewScalar()
+	if err := s.Decode(raw[:]); err == nil {
+		return s
+	}
+	var wide [64]byte
+	copy(wide[:32], raw[:])
+	return new(ristretto255.Scalar).FromUniformBytes(wide[:])
+}
+
+func Sr25519Sign(seed Seed, message []byte) (Signature, error) {
+	msk, err := schnorrkel.NewMiniSecretKeyFromRaw(seed.b)
+	if err != nil {
+		return Signature{}, err
+	}
+	sk := msk.ExpandEd25519()
+	ctx := schnorrkel.NewSigningContext([]byte("substrate"), message)
+	sig, err := sk.Sign(ctx)
+	if err != nil {
+		return Signature{}, err
+	}
+	encoded := sig.Encode()
+	return Signature{encoded}, nil
+}
+
+func Sr25519SigningScalar(seed Seed) ViewScalar {
+	raw := seed.b
+	h := sha512.Sum512(raw[:])
 	h[0] &= 248
 	h[31] &= 63
 	h[31] |= 64
@@ -30,9 +59,11 @@ func Sr25519SigningScalar(seed [32]byte) *ristretto255.Scalar {
 	if err := s.Decode(h[:32]); err != nil {
 		var wide [64]byte
 		copy(wide[:32], h[:32])
-		return new(ristretto255.Scalar).FromUniformBytes(wide[:])
+		s = new(ristretto255.Scalar).FromUniformBytes(wide[:])
 	}
-	return s
+	var out [32]byte
+	copy(out[:], s.Encode(nil))
+	return ViewScalar{out}
 }
 
 func divideScalarByCofactor(s []byte) {
@@ -45,10 +76,12 @@ func divideScalarByCofactor(s []byte) {
 	}
 }
 
-func PublicFromSeed(seed [32]byte) []byte {
-	scalar := Sr25519SigningScalar(seed)
-	pub := new(ristretto255.Element).ScalarBaseMult(scalar)
-	return pub.Encode(nil)
+func PublicFromSeed(seed Seed) Pubkey {
+	vs := Sr25519SigningScalar(seed)
+	pub := new(ristretto255.Element).ScalarBaseMult(viewScalarToRistretto(vs))
+	var out [32]byte
+	copy(out[:], pub.Encode(nil))
+	return Pubkey{out}
 }
 
 func hkdfExpand(ikm, salt, info []byte, length int) []byte {
@@ -58,22 +91,24 @@ func hkdfExpand(ikm, salt, info []byte, length int) []byte {
 	return out
 }
 
-func deriveEphemeral(seed *[32]byte, recipient []byte, nonce *[12]byte) []byte {
+func deriveEphemeral(seed Seed, recipient [32]byte, nonce Nonce) []byte {
 	info := make([]byte, 44)
-	copy(info[:32], recipient)
-	copy(info[32:], nonce[:])
-	return hkdfExpand(seed[:], nil, info, 32)
+	copy(info[:32], recipient[:])
+	copy(info[32:], nonce.b[:])
+	raw := seed.b
+	return hkdfExpand(raw[:], nil, info, 32)
 }
 
-func deriveSealKey(seed *[32]byte, nonce *[12]byte) []byte {
-	return hkdfExpand(seed[:], nonce[:], []byte("samp-seal"), 32)
+func deriveSealKey(seed Seed, nonce Nonce) []byte {
+	raw := seed.b
+	return hkdfExpand(raw[:], nonce.chachaNonce(), []byte("samp-seal"), 32)
 }
 
-func deriveSymmetricKey(sharedSecret, nonce []byte) []byte {
-	return hkdfExpand(sharedSecret, nonce, []byte("samp-message"), 32)
+func deriveSymmetricKey(sharedSecret []byte, nonce Nonce) []byte {
+	return hkdfExpand(sharedSecret, nonce.chachaNonce(), []byte("samp-message"), 32)
 }
 
-func deriveViewTag(sharedSecret []byte) byte {
+func deriveViewTagByte(sharedSecret []byte) byte {
 	out := hkdfExpand(sharedSecret, nil, []byte("samp-view-tag"), 1)
 	return out[0]
 }
@@ -93,232 +128,233 @@ func scalarFromBytes(b []byte) *ristretto255.Scalar {
 	return new(ristretto255.Scalar).FromUniformBytes(wide[:])
 }
 
-// Encrypt encrypts plaintext for a recipient.
-// Returns: ephemeral(32) || sealed_to(32) || ciphertext || auth_tag(16).
-func Encrypt(plaintext, recipientPub []byte, nonce [12]byte, senderSeed [32]byte) ([]byte, error) {
-	ephBytes := deriveEphemeral(&senderSeed, recipientPub, &nonce)
+func Encrypt(plaintext Plaintext, recipientPub Pubkey, nonce Nonce, senderSeed Seed) (Ciphertext, error) {
+	recBytes := recipientPub.b
+	ephBytes := deriveEphemeral(senderSeed, recBytes, nonce)
 	ephScalar := scalarFromBytes(ephBytes)
 	ephPubkey := new(ristretto255.Element).ScalarBaseMult(ephScalar)
 
-	sharedSecret, err := ecdhSharedSecret(ephScalar, recipientPub)
+	sharedSecret, err := ecdhSharedSecret(ephScalar, recBytes[:])
 	if err != nil {
-		return nil, err
+		return Ciphertext{}, err
 	}
 
-	sealKey := deriveSealKey(&senderSeed, &nonce)
+	sealKey := deriveSealKey(senderSeed, nonce)
 	var sealedTo [32]byte
 	for i := 0; i < 32; i++ {
-		sealedTo[i] = recipientPub[i] ^ sealKey[i]
+		sealedTo[i] = recBytes[i] ^ sealKey[i]
 	}
 
-	symKey := deriveSymmetricKey(sharedSecret, nonce[:])
+	symKey := deriveSymmetricKey(sharedSecret, nonce)
 	aead, err := chacha20poly1305.New(symKey)
 	if err != nil {
-		return nil, err
+		return Ciphertext{}, err
 	}
-	ciphertextWithTag := aead.Seal(nil, nonce[:], plaintext, sealedTo[:])
+	ciphertextWithTag := aead.Seal(nil, nonce.chachaNonce(), plaintext.b, sealedTo[:])
 
-	out := make([]byte, 0, EncryptedOverhead+len(plaintext))
+	out := make([]byte, 0, EncryptedOverhead+len(plaintext.b))
 	out = append(out, ephPubkey.Encode(nil)...)
 	out = append(out, sealedTo[:]...)
 	out = append(out, ciphertextWithTag...)
-	return out, nil
+	return Ciphertext{out}, nil
 }
 
-// Decrypt decrypts as the recipient using the signing scalar.
-func Decrypt(remark *Remark, signingScalar *ristretto255.Scalar) ([]byte, error) {
-	if len(remark.Content) < EncryptedOverhead {
-		return nil, ErrInsufficientData
+func Decrypt(ct Ciphertext, nonce Nonce, signingScalar ViewScalar) (Plaintext, error) {
+	if len(ct.b) < EncryptedOverhead {
+		return Plaintext{}, ErrInsufficientData
 	}
-	content := remark.Content
-	sharedSecret, err := ecdhSharedSecret(signingScalar, content[:32])
+	content := ct.b
+	sharedSecret, err := ecdhSharedSecret(viewScalarToRistretto(signingScalar), content[:32])
 	if err != nil {
-		return nil, err
+		return Plaintext{}, err
 	}
-	symKey := deriveSymmetricKey(sharedSecret, remark.Nonce[:])
+	symKey := deriveSymmetricKey(sharedSecret, nonce)
 	aead, err := chacha20poly1305.New(symKey)
 	if err != nil {
-		return nil, err
+		return Plaintext{}, err
 	}
-	plaintext, err := aead.Open(nil, remark.Nonce[:], content[64:], content[32:64])
+	plaintext, err := aead.Open(nil, nonce.chachaNonce(), content[64:], content[32:64])
 	if err != nil {
-		return nil, ErrDecryptionFailed
+		return Plaintext{}, ErrDecryptionFailed
 	}
-	return plaintext, nil
+	return Plaintext{plaintext}, nil
 }
 
-// DecryptAsSender decrypts using the sender's seed (via sealed_to).
-func DecryptAsSender(remark *Remark, senderSeed [32]byte) ([]byte, error) {
-	if len(remark.Content) < EncryptedOverhead {
-		return nil, ErrInsufficientData
+func DecryptAsSender(ct Ciphertext, nonce Nonce, senderSeed Seed) (Plaintext, error) {
+	if len(ct.b) < EncryptedOverhead {
+		return Plaintext{}, ErrInsufficientData
 	}
-	content := remark.Content
-	nonce := remark.Nonce
-	sealKey := deriveSealKey(&senderSeed, &nonce)
+	content := ct.b
+	sealKey := deriveSealKey(senderSeed, nonce)
 	var recipient [32]byte
 	for i := 0; i < 32; i++ {
 		recipient[i] = content[32+i] ^ sealKey[i]
 	}
 
-	ephBytes := deriveEphemeral(&senderSeed, recipient[:], &nonce)
+	ephBytes := deriveEphemeral(senderSeed, recipient, nonce)
 	ephScalar := scalarFromBytes(ephBytes)
 	sharedSecret, err := ecdhSharedSecret(ephScalar, recipient[:])
 	if err != nil {
-		return nil, err
+		return Plaintext{}, err
 	}
 
-	symKey := deriveSymmetricKey(sharedSecret, nonce[:])
+	symKey := deriveSymmetricKey(sharedSecret, nonce)
 	aead, err := chacha20poly1305.New(symKey)
 	if err != nil {
-		return nil, err
+		return Plaintext{}, err
 	}
-	plaintext, err := aead.Open(nil, nonce[:], content[64:], content[32:64])
+	plaintext, err := aead.Open(nil, nonce.chachaNonce(), content[64:], content[32:64])
 	if err != nil {
-		return nil, ErrDecryptionFailed
+		return Plaintext{}, ErrDecryptionFailed
 	}
-	return plaintext, nil
+	return Plaintext{plaintext}, nil
 }
 
-// CheckViewTag computes the recipient-side view tag (Section 5.3).
-func CheckViewTag(remark *Remark, signingScalar *ristretto255.Scalar) (byte, error) {
-	if len(remark.Content) < EncryptedOverhead {
-		return 0, ErrInsufficientData
+func CheckViewTag(ct Ciphertext, signingScalar ViewScalar) (ViewTag, error) {
+	if len(ct.b) < EncryptedOverhead {
+		return ViewTag{}, ErrInsufficientData
 	}
-	sharedSecret, err := ecdhSharedSecret(signingScalar, remark.Content[:32])
+	sharedSecret, err := ecdhSharedSecret(viewScalarToRistretto(signingScalar), ct.b[:32])
 	if err != nil {
-		return 0, err
+		return ViewTag{}, err
 	}
-	return deriveViewTag(sharedSecret), nil
+	return ViewTag{deriveViewTagByte(sharedSecret)}, nil
 }
 
-// UnsealRecipient recovers the recipient pubkey from sealed_to (Section 5.5 step 3).
-func UnsealRecipient(remark *Remark, senderSeed [32]byte) ([32]byte, error) {
-	if len(remark.Content) < EncryptedOverhead {
-		return [32]byte{}, ErrInsufficientData
+func UnsealRecipient(ct Ciphertext, nonce Nonce, senderSeed Seed) (Pubkey, error) {
+	if len(ct.b) < EncryptedOverhead {
+		return Pubkey{}, ErrInsufficientData
 	}
-	nonce := remark.Nonce
-	sealKey := deriveSealKey(&senderSeed, &nonce)
+	sealKey := deriveSealKey(senderSeed, nonce)
 	var recipient [32]byte
 	for i := 0; i < 32; i++ {
-		recipient[i] = remark.Content[32+i] ^ sealKey[i]
+		recipient[i] = ct.b[32+i] ^ sealKey[i]
 	}
-	return recipient, nil
+	return Pubkey{recipient}, nil
 }
 
-// ComputeViewTag computes the sender-side view tag.
-func ComputeViewTag(senderSeed [32]byte, recipientPub []byte, nonce [12]byte) (byte, error) {
-	ephBytes := deriveEphemeral(&senderSeed, recipientPub, &nonce)
+func ComputeViewTag(senderSeed Seed, recipient Pubkey, nonce Nonce) (ViewTag, error) {
+	recBytes := recipient.b
+	ephBytes := deriveEphemeral(senderSeed, recBytes, nonce)
 	ephScalar := scalarFromBytes(ephBytes)
-	sharedSecret, err := ecdhSharedSecret(ephScalar, recipientPub)
+	sharedSecret, err := ecdhSharedSecret(ephScalar, recBytes[:])
 	if err != nil {
-		return 0, err
+		return ViewTag{}, err
 	}
-	return deriveViewTag(sharedSecret), nil
+	return ViewTag{deriveViewTagByte(sharedSecret)}, nil
 }
 
-func DeriveGroupEphemeral(senderSeed, nonce []byte) []byte {
-	info := make([]byte, len("samp-group-eph")+len(nonce))
-	copy(info, []byte("samp-group-eph"))
-	copy(info[len("samp-group-eph"):], nonce)
-	return hkdfExpand(senderSeed, nil, info, 32)
+func deriveGroupEphemeral(senderSeed Seed, nonce Nonce) []byte {
+	info := make([]byte, 0, len("samp-group-eph")+12)
+	info = append(info, []byte("samp-group-eph")...)
+	info = append(info, nonce.b[:]...)
+	raw := senderSeed.b
+	return hkdfExpand(raw[:], nil, info, 32)
 }
 
-func deriveKeyWrap(sharedSecret, nonce []byte) []byte {
-	return hkdfExpand(sharedSecret, nonce, []byte("samp-key-wrap"), 32)
+func deriveKeyWrap(sharedSecret []byte, nonce Nonce) []byte {
+	return hkdfExpand(sharedSecret, nonce.chachaNonce(), []byte("samp-key-wrap"), 32)
 }
 
-func BuildCapsules(contentKey []byte, memberPubkeys [][]byte, ephScalar, nonce []byte) []byte {
-	scalar := scalarFromBytes(ephScalar)
-	out := make([]byte, 0, len(memberPubkeys)*CapsuleSize)
-	for _, pk := range memberPubkeys {
-		shared, err := ecdhSharedSecret(scalar, pk)
+func buildCapsules(contentKey ContentKey, members []Pubkey, ephScalar *ristretto255.Scalar, nonce Nonce) Capsules {
+	out := make([]byte, 0, len(members)*CapsuleSize)
+	ck := contentKey.b
+	for _, pk := range members {
+		pkb := pk.b
+		shared, err := ecdhSharedSecret(ephScalar, pkb[:])
 		if err != nil {
 			out = append(out, make([]byte, CapsuleSize)...)
 			continue
 		}
-		tag := deriveViewTag(shared)
+		tag := deriveViewTagByte(shared)
 		kek := deriveKeyWrap(shared, nonce)
 		out = append(out, tag)
 		for i := 0; i < 32; i++ {
-			out = append(out, contentKey[i]^kek[i])
+			out = append(out, ck[i]^kek[i])
 		}
 	}
-	return out
+	return Capsules{out}
 }
 
-func ScanCapsules(data, ephPubkey, myScalar, nonce []byte) (index int, contentKey []byte, found bool) {
-	scalar := scalarFromBytes(myScalar)
-	shared, err := ecdhSharedSecret(scalar, ephPubkey)
+func scanCapsules(data []byte, ephPubkey EphPubkey, myScalar ViewScalar, nonce Nonce) (int, ContentKey, bool) {
+	epb := ephPubkey.b
+	shared, err := ecdhSharedSecret(viewScalarToRistretto(myScalar), epb[:])
 	if err != nil {
-		return 0, nil, false
+		return 0, ContentKey{}, false
 	}
-	myTag := deriveViewTag(shared)
+	myTag := deriveViewTagByte(shared)
 	kek := deriveKeyWrap(shared, nonce)
 
 	offset := 0
 	idx := 0
 	for offset+CapsuleSize <= len(data) {
 		if data[offset] == myTag {
-			ck := make([]byte, 32)
+			var ck [32]byte
 			for i := 0; i < 32; i++ {
 				ck[i] = data[offset+1+i] ^ kek[i]
 			}
-			return idx, ck, true
+			return idx, ContentKey{ck}, true
 		}
 		offset += CapsuleSize
 		idx++
 	}
-	return 0, nil, false
+	return 0, ContentKey{}, false
 }
 
-func EncryptForGroup(plaintext []byte, memberPubkeys [][]byte, nonce, senderSeed []byte) (ephPubkey, capsules, ciphertext []byte, err error) {
-	ephBytes := DeriveGroupEphemeral(senderSeed, nonce)
+func EncryptForGroup(plaintext Plaintext, members []Pubkey, nonce Nonce, senderSeed Seed) (EphPubkey, Capsules, Ciphertext, error) {
+	ephBytes := deriveGroupEphemeral(senderSeed, nonce)
 	ephScalar := scalarFromBytes(ephBytes)
 	ephPub := new(ristretto255.Element).ScalarBaseMult(ephScalar)
 
-	contentKey := make([]byte, 32)
-	if _, err := rand.Read(contentKey); err != nil {
-		return nil, nil, nil, err
+	var ck [32]byte
+	if _, err := rand.Read(ck[:]); err != nil {
+		return EphPubkey{}, Capsules{}, Ciphertext{}, err
 	}
+	contentKey := ContentKey{ck}
 
-	capsules = BuildCapsules(contentKey, memberPubkeys, ephBytes, nonce)
+	capsules := buildCapsules(contentKey, members, ephScalar, nonce)
 
-	aead, err := chacha20poly1305.New(contentKey)
+	aead, err := chacha20poly1305.New(ck[:])
 	if err != nil {
-		return nil, nil, nil, err
+		return EphPubkey{}, Capsules{}, Ciphertext{}, err
 	}
-	ct := aead.Seal(nil, nonce, plaintext, nil)
+	ct := aead.Seal(nil, nonce.chachaNonce(), plaintext.b, nil)
 
-	return ephPub.Encode(nil), capsules, ct, nil
+	var ephArr [32]byte
+	copy(ephArr[:], ephPub.Encode(nil))
+	return EphPubkey{ephArr}, capsules, Ciphertext{ct}, nil
 }
 
-func DecryptFromGroup(content, myScalar, nonce []byte, knownN int) ([]byte, error) {
+func DecryptFromGroup(content []byte, myScalar ViewScalar, nonce Nonce, knownN int) (Plaintext, error) {
 	if len(content) < 32 {
-		return nil, ErrInsufficientData
+		return Plaintext{}, ErrInsufficientData
 	}
-	ephPubkey := content[:32]
+	var ephArr [32]byte
+	copy(ephArr[:], content[:32])
+	ephPubkey := EphPubkey{ephArr}
 	afterEph := content[32:]
 
-	capsuleIdx, contentKey, found := ScanCapsules(afterEph, ephPubkey, myScalar, nonce)
+	capsuleIdx, contentKey, found := scanCapsules(afterEph, ephPubkey, myScalar, nonce)
 	if !found {
-		return nil, ErrDecryptionFailed
+		return Plaintext{}, ErrDecryptionFailed
 	}
+	ckRaw := contentKey.b
 
-	aead, err := chacha20poly1305.New(contentKey)
+	aead, err := chacha20poly1305.New(ckRaw[:])
 	if err != nil {
-		return nil, err
+		return Plaintext{}, err
 	}
 
 	if knownN > 0 {
 		ctStart := knownN * CapsuleSize
 		if ctStart > len(afterEph) {
-			return nil, ErrInsufficientData
+			return Plaintext{}, ErrInsufficientData
 		}
-		plaintext, err := aead.Open(nil, nonce, afterEph[ctStart:], nil)
+		pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil)
 		if err != nil {
-			return nil, ErrDecryptionFailed
+			return Plaintext{}, ErrDecryptionFailed
 		}
-		return plaintext, nil
+		return Plaintext{pt}, nil
 	}
 
 	minN := capsuleIdx + 1
@@ -328,10 +364,10 @@ func DecryptFromGroup(content, myScalar, nonce []byte, knownN int) ([]byte, erro
 		if ctStart >= len(afterEph) {
 			break
 		}
-		plaintext, err := aead.Open(nil, nonce, afterEph[ctStart:], nil)
+		pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil)
 		if err == nil {
-			return plaintext, nil
+			return Plaintext{pt}, nil
 		}
 	}
-	return nil, ErrDecryptionFailed
+	return Plaintext{}, ErrDecryptionFailed
 }

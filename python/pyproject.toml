@@ -1,13 +1,13 @@
 [project]
 name = "samp"
-version = "1.0.0"
+version = "1.1.0"
 description = "Substrate Account Messaging Protocol -- Python SDK"
 license = "MIT"
 requires-python = ">=3.9"
 dependencies = ["samp-crypto"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "mypy"]
 
 [project.urls]
 Repository = "https://github.com/samp-org/samp"
@@ -16,3 +16,23 @@ Specification = "https://github.com/samp-org/samp/blob/main/specs/samp.md"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+samp = ["py.typed"]
+
+[tool.mypy]
+strict = true
+files = ["samp"]
+warn_unused_ignores = true
+no_implicit_optional = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "samp_crypto"
+ignore_missing_imports = true
+
+[tool.pyright]
+include = ["samp", "tests"]
+venvPath = ".."
+venv = ".venv"
+reportMissingTypeStubs = "none"

@@ -12,26 +12,31 @@ samp = { git = "https://github.com/samp-org/samp", subdirectory = "rust" }
 ## Usage
 
 ```rust
-use samp::{encode_public, encode_encrypted, encrypt, decrypt,
-           compute_view_tag, sr25519_signing_scalar, decode_remark};
+use samp::encryption::{compute_view_tag, decrypt, encrypt, sr25519_signing_scalar};
+use samp::secret::Seed;
+use samp::types::{ContentType, Nonce, Plaintext, Pubkey};
+use samp::wire::{decode_remark, encode_encrypted, encode_public, Remark};
 
-let sender_seed: [u8; 32] = /* your sr25519 seed */;
-let recipient_pub: [u8; 32] = /* recipient's sr25519 public key */;
+let sender_seed = Seed::from_bytes([0u8; 32]); // your sr25519 seed
+let recipient_pub = Pubkey::from_bytes([0u8; 32]); // recipient's sr25519 public key
 
 // Public message
-let remark = encode_public(&recipient_pub, b"Hello from Rust");
+let remark = encode_public(&recipient_pub, "Hello from Rust");
 
 // Encrypted message
-let nonce: [u8; 12] = rand::random();
-let recipient = curve25519_dalek::ristretto::CompressedRistretto(recipient_pub);
-let ciphertext = encrypt(b"Private message", &recipient, &nonce, &sender_seed).unwrap();
-let tag = compute_view_tag(&sender_seed, &recipient, &nonce).unwrap();
-let remark = encode_encrypted(0x11, tag, &nonce, &ciphertext);
+let nonce = Nonce::from_bytes([0u8; 12]); // use a random 12-byte IV
+let plaintext = Plaintext::from_bytes(b"Private message".to_vec());
+let ciphertext = encrypt(&plaintext, &recipient_pub, &nonce, &sender_seed).unwrap();
+let tag = compute_view_tag(&sender_seed, &recipient_pub, &nonce).unwrap();
+let enc_remark = encode_encrypted(ContentType::Encrypted, tag, &nonce, &ciphertext);
 
 // Decrypt
+let recipient_seed = Seed::from_bytes([0u8; 32]);
 let scalar = sr25519_signing_scalar(&recipient_seed);
-let parsed = decode_remark(&remark).unwrap();
-let plaintext = decrypt(&parsed.content, &scalar, &parsed.nonce).unwrap();
+let Remark::Encrypted { nonce: n, ciphertext: ct, .. } = decode_remark(&enc_remark).unwrap() else {
+    panic!("expected Encrypted");
+};
+let plaintext = decrypt(&ct, &n, &scalar).unwrap();
 ```
 
 ## API

@@ -19,23 +19,30 @@ import (
 )
 
 func main() {
-	var senderSeed [32]byte  // your sr25519 seed
-	var recipientPub [32]byte // recipient's sr25519 public key
+	var seedBytes [32]byte   // your sr25519 seed
+	var pubBytes [32]byte    // recipient's sr25519 public key
+	senderSeed := samp.SeedFromBytes(seedBytes)
+	recipientPub := samp.PubkeyFromBytes(pubBytes)
 
 	// Public message
-	remark := samp.EncodePublic(recipientPub[:], []byte("Hello from Go"))
+	remark := samp.EncodePublic(recipientPub, "Hello from Go")
 
 	// Encrypted message
-	nonce := make([]byte, 12)
-	rand.Read(nonce)
-	ciphertext, _ := samp.Encrypt([]byte("Private message"), recipientPub[:], nonce, senderSeed[:])
-	tag, _ := samp.ComputeViewTag(senderSeed[:], recipientPub[:], nonce)
+	var nb [12]byte
+	_, _ = rand.Read(nb[:])
+	nonce := samp.NonceFromBytes(nb)
+	plaintext := samp.PlaintextFromBytes([]byte("Private message"))
+	ciphertext, _ := samp.Encrypt(plaintext, recipientPub, nonce, senderSeed)
+	tag, _ := samp.ComputeViewTag(senderSeed, recipientPub, nonce)
 	remark = samp.EncodeEncrypted(samp.ContentTypeEncrypted, tag, nonce, ciphertext)
 
 	// Decrypt
-	scalar := samp.Sr25519SigningScalar(recipientSeed[:])
+	var recipientSeedBytes [32]byte
+	recipientSeed := samp.SeedFromBytes(recipientSeedBytes)
+	scalar := samp.Sr25519SigningScalar(recipientSeed)
 	parsed, _ := samp.DecodeRemark(remark)
-	plaintext, _ := samp.Decrypt(parsed.Content, scalar.Bytes(), parsed.Nonce[:])
+	er := parsed.(samp.EncryptedRemark)
+	_, _ = samp.Decrypt(er.Ciphertext, er.Nonce, scalar)
 }
 ```
 

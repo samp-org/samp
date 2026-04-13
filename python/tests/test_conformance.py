@@ -1,23 +1,35 @@
-"""SAMP conformance tests against shared test vectors."""
+from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
-import samp_crypto
 
 from samp import (
+    BlockRef,
+    ChannelCreateRemark,
+    ChannelDescription,
+    ChannelName,
+    ChannelRemark,
+    EncryptedRemark,
+    GroupRemark,
+    PublicRemark,
     SampError,
+    Seed,
+    block_number_from_int,
     decode_remark,
     encrypt,
+    ext_index_from_int,
+    nonce_from_bytes,
+    plaintext_from_bytes,
+    pubkey_from_bytes,
+    sr25519_signing_scalar,
 )
 from samp.encryption import compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group
 from samp.wire import (
-    CONTENT_TYPE_CHANNEL,
-    CONTENT_TYPE_ENCRYPTED,
-    CONTENT_TYPE_GROUP,
-    CONTENT_TYPE_PUBLIC,
-    decode_channel_create,
+    ContentType,
+    ThreadRemark,
     decode_thread_content,
     encode_channel_create,
     encode_channel_msg,
@@ -30,75 +42,78 @@ from samp.wire import (
 VECTORS_PATH = Path(__file__).resolve().parent.parent.parent / "e2e" / "test-vectors.json"
 
 
-def load_vectors() -> dict:
-    return json.loads(VECTORS_PATH.read_text())
+def load_vectors() -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(VECTORS_PATH.read_text())
+    return data
 
 
 def h(s: str) -> bytes:
     return bytes.fromhex(s.removeprefix("0x"))
 
 
-# --- Keypair derivation ---
+def _br(pair: list[int]) -> BlockRef:
+    return BlockRef.of(block_number_from_int(pair[0]), ext_index_from_int(pair[1]))
 
 
-def test_keypair_alice():
+def test_keypair_alice() -> None:
+    import samp_crypto  # type: ignore[import-not-found]
+
     v = load_vectors()
-    seed = h(v["alice"]["seed"])
-    pub = samp_crypto.public_from_seed(seed)
+    seed_bytes = h(v["alice"]["seed"])
+    seed = Seed.from_bytes(seed_bytes)
+    pub = samp_crypto.public_from_seed(seed.expose_secret())
     assert pub == h(v["alice"]["sr25519_public"])
-    scalar = samp_crypto.sr25519_signing_scalar(seed)
-    assert scalar == h(v["alice"]["signing_scalar"])
+    scalar = sr25519_signing_scalar(seed)
+    assert scalar.expose_secret() == h(v["alice"]["signing_scalar"])
 
 
-def test_keypair_bob():
+def test_keypair_bob() -> None:
+    import samp_crypto  # type: ignore[import-not-found]
+
     v = load_vectors()
-    seed = h(v["bob"]["seed"])
-    pub = samp_crypto.public_from_seed(seed)
+    seed_bytes = h(v["bob"]["seed"])
+    seed = Seed.from_bytes(seed_bytes)
+    pub = samp_crypto.public_from_seed(seed.expose_secret())
     assert pub == h(v["bob"]["sr25519_public"])
-    scalar = samp_crypto.sr25519_signing_scalar(seed)
-    assert scalar == h(v["bob"]["signing_scalar"])
+    scalar = sr25519_signing_scalar(seed)
+    assert scalar.expose_secret() == h(v["bob"]["signing_scalar"])
 
 
-# --- Public message ---
-
-
-def test_public_message_encoding():
+def test_public_message_encoding() -> None:
     v = load_vectors()
-    bob_pub = h(v["bob"]["sr25519_public"])
-    body = h(v["public_message"]["body"])
+    bob_pub = pubkey_from_bytes(h(v["bob"]["sr25519_public"]))
+    body_bytes = h(v["public_message"]["body"])
+    body = body_bytes.decode("utf-8")
     remark = encode_public(bob_pub, body)
     assert remark == h(v["public_message"]["remark"])
 
 
-def test_public_message_decoding():
+def test_public_message_decoding() -> None:
     v = load_vectors()
     remark = h(v["public_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_PUBLIC
-    assert parsed.content == h(v["public_message"]["body"])
+    assert isinstance(parsed, PublicRemark)
+    assert parsed.body.encode("utf-8") == h(v["public_message"]["body"])
 
 
-# --- Encrypted message ---
-
-
-def test_encrypted_message_encoding():
+def test_encrypted_message_encoding() -> None:
     v = load_vectors()
-    alice_seed = h(v["alice"]["seed"])
-    bob_pub = h(v["bob"]["sr25519_public"])
-    nonce = h(v["encrypted_message"]["nonce"])
-    plaintext = h(v["encrypted_message"]["plaintext"])
+    alice_seed = Seed.from_bytes(h(v["alice"]["seed"]))
+    bob_pub = pubkey_from_bytes(h(v["bob"]["sr25519_public"]))
+    nonce = nonce_from_bytes(h(v["encrypted_message"]["nonce"]))
+    plaintext = plaintext_from_bytes(h(v["encrypted_message"]["plaintext"]))
 
-    encrypted_content = encrypt(plaintext, bob_pub, nonce, alice_seed)
-    assert encrypted_content == h(v["encrypted_message"]["encrypted_content"])
+    ciphertext = encrypt(plaintext, bob_pub, nonce, alice_seed)
+    assert ciphertext == h(v["encrypted_message"]["encrypted_content"])
 
     view_tag = compute_view_tag(alice_seed, bob_pub, nonce)
     assert view_tag == v["encrypted_message"]["view_tag"]
 
-    remark = encode_encrypted(CONTENT_TYPE_ENCRYPTED, view_tag, nonce, encrypted_content)
+    remark = encode_encrypted(ContentType.ENCRYPTED, view_tag, nonce, ciphertext)
     assert remark == h(v["encrypted_message"]["remark"])
 
 
-def test_encrypted_message_intermediates():
+def test_encrypted_message_intermediates() -> None:
     v = load_vectors()
     content = h(v["encrypted_message"]["encrypted_content"])
     assert content[:32] == h(v["encrypted_message"]["ephemeral_pubkey"])
@@ -106,173 +121,184 @@ def test_encrypted_message_intermediates():
     assert content[64:] == h(v["encrypted_message"]["ciphertext_with_tag"])
 
 
-def test_encrypted_message_decoding():
+def test_encrypted_message_decoding() -> None:
     v = load_vectors()
     remark = h(v["encrypted_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
+    assert isinstance(parsed, EncryptedRemark)
     assert parsed.view_tag == v["encrypted_message"]["view_tag"]
     assert parsed.nonce == h(v["encrypted_message"]["nonce"])
 
 
-def test_encrypted_recipient_decryption():
+def test_encrypted_recipient_decryption() -> None:
     v = load_vectors()
-    bob_seed = h(v["bob"]["seed"])
-    bob_scalar = samp_crypto.sr25519_signing_scalar(bob_seed)
+    bob_seed = Seed.from_bytes(h(v["bob"]["seed"]))
+    bob_scalar = sr25519_signing_scalar(bob_seed)
     parsed = decode_remark(h(v["encrypted_message"]["remark"]))
-    plaintext = decrypt(parsed, bob_scalar)
+    assert isinstance(parsed, EncryptedRemark)
+    plaintext = decrypt(parsed.ciphertext, parsed.nonce, bob_scalar)
     assert plaintext == h(v["encrypted_message"]["plaintext"])
 
 
-# --- Sender self-decryption ---
-
-
-def test_sender_self_decryption():
+def test_sender_self_decryption() -> None:
     v = load_vectors()
-    alice_seed = h(v["alice"]["seed"])
+    alice_seed = Seed.from_bytes(h(v["alice"]["seed"]))
     parsed = decode_remark(h(v["encrypted_message"]["remark"]))
-    plaintext = decrypt_as_sender(parsed, alice_seed)
+    assert isinstance(parsed, EncryptedRemark)
+    plaintext = decrypt_as_sender(parsed.ciphertext, parsed.nonce, alice_seed)
     assert plaintext == h(v["sender_self_decryption"]["plaintext"])
-    assert h(v["sender_self_decryption"]["unsealed_recipient"]) == h(v["bob"]["sr25519_public"])
-
-
-# --- Thread message ---
-
-
-def test_thread_message():
-    v = load_vectors()
-    alice_seed = h(v["alice"]["seed"])
-    bob_pub = h(v["bob"]["sr25519_public"])
-    bob_scalar = samp_crypto.sr25519_signing_scalar(h(v["bob"]["seed"]))
-    nonce = h(v["thread_message"]["nonce"])
-
-    th = v["thread_message"]["thread_ref"]
-    rt = v["thread_message"]["reply_to"]
-    ct = v["thread_message"]["continues"]
-    thread_plaintext = encode_thread_content(
-        (th[0], th[1]), (rt[0], rt[1]), (ct[0], ct[1]),
-        h(v["thread_message"]["body"]),
+    assert h(v["sender_self_decryption"]["unsealed_recipient"]) == h(
+        v["bob"]["sr25519_public"]
     )
+
+
+def test_thread_message() -> None:
+    v = load_vectors()
+    alice_seed = Seed.from_bytes(h(v["alice"]["seed"]))
+    bob_pub = pubkey_from_bytes(h(v["bob"]["sr25519_public"]))
+    bob_scalar = sr25519_signing_scalar(Seed.from_bytes(h(v["bob"]["seed"])))
+    nonce = nonce_from_bytes(h(v["thread_message"]["nonce"]))
+
+    th = _br(v["thread_message"]["thread_ref"])
+    rt = _br(v["thread_message"]["reply_to"])
+    ct = _br(v["thread_message"]["continues"])
+    thread_plaintext = encode_thread_content(th, rt, ct, h(v["thread_message"]["body"]))
     assert thread_plaintext == h(v["thread_message"]["thread_plaintext"])
 
-    encrypted = encrypt(thread_plaintext, bob_pub, nonce, alice_seed)
+    encrypted = encrypt(plaintext_from_bytes(thread_plaintext), bob_pub, nonce, alice_seed)
     assert encrypted == h(v["thread_message"]["encrypted_content"])
 
     parsed = decode_remark(h(v["thread_message"]["remark"]))
-    decrypted = decrypt(parsed, bob_scalar)
+    assert isinstance(parsed, ThreadRemark)
+    decrypted = decrypt(parsed.ciphertext, parsed.nonce, bob_scalar)
     thread, reply_to, _continues, body = decode_thread_content(decrypted)
-    assert thread == (th[0], th[1])
-    assert reply_to == (rt[0], rt[1])
+    assert thread == th
+    assert reply_to == rt
     assert body == h(v["thread_message"]["body"])
 
 
-# --- Channel message ---
-
-
-def test_channel_message_encoding():
+def test_channel_message_encoding() -> None:
     v = load_vectors()
     ch = v["channel_message"]
     remark = encode_channel_msg(
-        tuple(ch["channel_ref"]),
-        tuple(ch["reply_to"]),
-        tuple(ch["continues"]),
-        h(ch["body"]),
+        _br(ch["channel_ref"]),
+        _br(ch["reply_to"]),
+        _br(ch["continues"]),
+        h(ch["body"]).decode("utf-8"),
     )
     assert remark == h(ch["remark"])
 
 
-def test_channel_message_decoding():
+def test_channel_message_decoding() -> None:
     v = load_vectors()
     remark = h(v["channel_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_CHANNEL
+    assert isinstance(parsed, ChannelRemark)
 
 
-# --- Channel creation ---
-
-
-def test_channel_create_encoding():
+def test_channel_create_encoding() -> None:
     v = load_vectors()
     ch = v["channel_create"]
-    remark = encode_channel_create(ch["name"], ch["description"])
+    remark = encode_channel_create(
+        ChannelName.parse(ch["name"]),
+        ChannelDescription.parse(ch["description"]),
+    )
     assert remark == h(ch["remark"])
 
 
-def test_channel_create_decoding():
+def test_channel_create_decoding() -> None:
     v = load_vectors()
     remark = h(v["channel_create"]["remark"])
     parsed = decode_remark(remark)
-    name, desc = decode_channel_create(parsed.content)
-    assert name == v["channel_create"]["name"]
-    assert desc == v["channel_create"]["description"]
+    assert isinstance(parsed, ChannelCreateRemark)
+    assert parsed.name.as_str() == v["channel_create"]["name"]
+    assert parsed.description.as_str() == v["channel_create"]["description"]
 
 
-# --- Group message ---
-
-
-def test_conformance_group_remark():
+def test_conformance_group_remark() -> None:
     v = load_vectors()
     remark = h(v["group_message"]["remark"])
     parsed = decode_remark(remark)
-    assert parsed.content_type == CONTENT_TYPE_GROUP
+    assert isinstance(parsed, GroupRemark)
 
 
-def test_conformance_group_member_list():
+def test_conformance_group_member_list() -> None:
     v = load_vectors()
-    members = [h(m) for m in v["group_message"]["members"]]
+    members = [pubkey_from_bytes(h(m)) for m in v["group_message"]["members"]]
     encoded = encode_group_members(members)
     assert encoded == h(v["group_message"]["member_list_encoded"])
 
 
-def test_conformance_group_decrypt_by_member():
+def test_conformance_group_decrypt_by_member() -> None:
     v = load_vectors()
-    bob_seed = h(v["bob"]["seed"])
-    bob_scalar = samp_crypto.sr25519_signing_scalar(bob_seed)
+    bob_seed = Seed.from_bytes(h(v["bob"]["seed"]))
+    bob_scalar = sr25519_signing_scalar(bob_seed)
     parsed = decode_remark(h(v["group_message"]["remark"]))
+    assert isinstance(parsed, GroupRemark)
     plaintext = decrypt_from_group(parsed.content, bob_scalar, parsed.nonce)
     assert plaintext == h(v["group_message"]["root_plaintext"])
 
 
-# --- Edge cases ---
-
-
-def test_edge_empty_body_public():
+def test_edge_empty_body_public() -> None:
     v = load_vectors()
     parsed = decode_remark(h(v["edge_cases"]["empty_body_public"]))
-    assert parsed.content_type == CONTENT_TYPE_PUBLIC
-    assert parsed.content == b""
+    assert isinstance(parsed, PublicRemark)
+    assert parsed.body == ""
 
 
-def test_edge_min_encrypted():
+def test_edge_min_encrypted() -> None:
     v = load_vectors()
     parsed = decode_remark(h(v["edge_cases"]["min_encrypted"]))
-    assert parsed.content_type == CONTENT_TYPE_ENCRYPTED
+    assert isinstance(parsed, EncryptedRemark)
 
 
-def test_edge_empty_desc_channel_create():
+def test_edge_empty_desc_channel_create() -> None:
     v = load_vectors()
     parsed = decode_remark(h(v["edge_cases"]["empty_desc_channel_create"]))
-    name, desc = decode_channel_create(parsed.content)
-    assert name == "test"
-    assert desc == ""
+    assert isinstance(parsed, ChannelCreateRemark)
+    assert parsed.name.as_str() == "test"
+    assert parsed.description.as_str() == ""
 
 
-# --- Negative cases ---
-
-
-def test_negative_non_samp_version():
+def test_negative_non_samp_version() -> None:
     v = load_vectors()
     with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["non_samp_version"]))
 
 
-def test_negative_reserved_type():
+def test_negative_reserved_type() -> None:
     v = load_vectors()
     with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["reserved_type"]))
 
 
-def test_negative_truncated_encrypted():
+def test_negative_truncated_encrypted() -> None:
     v = load_vectors()
     with pytest.raises(SampError):
         decode_remark(h(v["negative_cases"]["truncated_encrypted"]))
+
+
+def test_content_type_byte_values_pinned() -> None:
+    assert ContentType.PUBLIC == 0x10
+    assert ContentType.ENCRYPTED == 0x11
+    assert ContentType.THREAD == 0x12
+    assert ContentType.CHANNEL_CREATE == 0x13
+    assert ContentType.CHANNEL == 0x14
+    assert ContentType.GROUP == 0x15
+
+
+def test_typed_wrappers_round_trip() -> None:
+    v = load_vectors()
+    bob_raw = h(v["bob"]["sr25519_public"])
+    assert bytes(pubkey_from_bytes(bob_raw)) == bob_raw
+    nonce_raw = h(v["encrypted_message"]["nonce"])
+    assert bytes(nonce_from_bytes(nonce_raw)) == nonce_raw
+
+
+def test_block_ref_str_format() -> None:
+    assert str(BlockRef.from_parts(42, 7)) == "#42.7"
+
+
+def test_pubkey_from_bytes_rejects_wrong_length() -> None:
+    with pytest.raises(SampError):
+        pubkey_from_bytes(b"\x00" * 31)

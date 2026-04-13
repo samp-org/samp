@@ -1,0 +1,26 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+    patch:
+      default:
+        target: auto
+
+flags:
+  rust:
+    paths:
+      - rust/
+    carryforward: true
+  python:
+    paths:
+      - python/
+    carryforward: true
+  typescript:
+    paths:
+      - typescript/
+    carryforward: true
+  go:
+    paths:
+      - go/
+    carryforward: true

@@ -15,28 +15,34 @@ cd python && pip install -e .
 ## Usage
 
 ```python
-from samp import (
-    encode_public, encode_encrypted, encrypt, decrypt,
-    compute_view_tag, sr25519_signing_scalar, decode_remark,
-)
 import os
 
-sender_seed = bytes.fromhex("e5be9a5092b81bca...")  # your sr25519 seed
-recipient_pub = bytes.fromhex("8eaf04151687736...")  # recipient's sr25519 public key
+from samp import (
+    EncryptedRemark, Seed, decode_remark,
+    nonce_from_bytes, plaintext_from_bytes, pubkey_from_bytes, sr25519_signing_scalar,
+)
+from samp.encryption import compute_view_tag, decrypt, encrypt
+from samp.wire import ContentType, encode_encrypted, encode_public
+
+sender_seed = Seed.from_bytes(bytes.fromhex("e5be9a5092b81bca" + "00" * 24))
+recipient_pub = pubkey_from_bytes(bytes.fromhex("8eaf04151687736" + "0" + "00" * 24))
 
 # Public message
-remark = encode_public(recipient_pub, b"Hello from Python")
+remark = encode_public(recipient_pub, "Hello from Python")
 
 # Encrypted message
-nonce = os.urandom(12)
-ciphertext = encrypt(b"Private message", recipient_pub, nonce, sender_seed)
+nonce = nonce_from_bytes(os.urandom(12))
+plaintext = plaintext_from_bytes(b"Private message")
+ciphertext = encrypt(plaintext, recipient_pub, nonce, sender_seed)
 tag = compute_view_tag(sender_seed, recipient_pub, nonce)
-remark = encode_encrypted(0x11, tag, nonce, ciphertext)
+enc_remark = encode_encrypted(ContentType.ENCRYPTED, tag, nonce, ciphertext)
 
 # Decrypt
+recipient_seed = Seed.from_bytes(bytes(32))
 scalar = sr25519_signing_scalar(recipient_seed)
-parsed = decode_remark(remark)
-plaintext = decrypt(parsed.content, scalar, parsed.nonce)
+parsed = decode_remark(enc_remark)
+assert isinstance(parsed, EncryptedRemark)
+clear = decrypt(parsed.ciphertext, parsed.nonce, scalar)
 ```
 
 ## API

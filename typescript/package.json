@@ -1,6 +1,6 @@
 {
   "name": "@samp-org/samp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Substrate Account Messaging Protocol -- TypeScript SDK",
   "license": "MIT",
   "type": "module",
@@ -13,18 +13,22 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@noble/curves": "^1.8.0",
     "@noble/ciphers": "^1.2.0",
-    "@noble/hashes": "^1.7.0"
+    "@noble/curves": "^1.8.0",
+    "@noble/hashes": "^1.7.0",
+    "@polkadot/wasm-crypto": "^7.5.4"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"

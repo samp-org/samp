@@ -7,6 +7,7 @@ use hkdf::Hkdf;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
+use schnorrkel::signing_context;
 use sha2::Sha256;
 
 const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
@@ -36,6 +37,13 @@ fn seed_to_keypair(seed: &[u8]) -> PyResult<schnorrkel::Keypair> {
 fn public_from_seed(seed: &[u8]) -> PyResult<Vec<u8>> {
     let kp = seed_to_keypair(seed)?;
     Ok(kp.public.to_bytes().to_vec())
+}
+
+#[pyfunction]
+fn sr25519_sign(seed: &[u8], message: &[u8]) -> PyResult<Vec<u8>> {
+    let kp = seed_to_keypair(seed)?;
+    let sig = kp.sign(signing_context(b"substrate").bytes(message));
+    Ok(sig.to_bytes().to_vec())
 }
 
 #[pyfunction]
@@ -494,6 +502,7 @@ fn decrypt_from_group(content: &[u8], my_scalar: &[u8], nonce: &[u8], known_n: O
 #[pymodule]
 fn samp_crypto(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(public_from_seed, m)?)?;
+    m.add_function(wrap_pyfunction!(sr25519_sign, m)?)?;
     m.add_function(wrap_pyfunction!(sr25519_signing_scalar, m)?)?;
     m.add_function(wrap_pyfunction!(ecdh, m)?)?;
     m.add_function(wrap_pyfunction!(hkdf_sha256, m)?)?;
