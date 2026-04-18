@@ -5,7 +5,12 @@
 </p>
 
 <p align="center">
+  <a href="https://crates.io/crates/samp-core"><img src="https://img.shields.io/crates/v/samp-core?label=crates.io&logo=rust" alt="crates.io" /></a>
+  <a href="https://pypi.org/project/samp-core/"><img src="https://img.shields.io/pypi/v/samp-core?logo=python&logoColor=white" alt="PyPI" /></a>
+  <a href="https://www.npmjs.com/package/samp-core"><img src="https://img.shields.io/npm/v/samp-core?logo=npm" alt="npm" /></a>
+  <a href="https://pkg.go.dev/github.com/samp-org/samp/go"><img src="https://img.shields.io/github/v/tag/samp-org/samp?label=go&logo=go&logoColor=white" alt="Go" /></a>
   <a href="https://codecov.io/gh/samp-org/samp"><img src="https://codecov.io/gh/samp-org/samp/graph/badge.svg" alt="codecov" /></a>
+  <img src="https://img.shields.io/github/license/samp-org/samp" alt="license" />
 </p>
 
 <p align="center">
