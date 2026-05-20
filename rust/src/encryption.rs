@@ -14,6 +14,7 @@ use sha2::Sha256;
 use zeroize::Zeroize;
 
 pub type GroupEncrypted = (EphPubkey, Capsules, Ciphertext);
+pub type GroupEncryptedWithNonce = (Nonce, EphPubkey, Capsules, Ciphertext);
 
 const MESSAGE_KEY_INFO: &[u8] = b"samp-message";
 const VIEW_TAG_INFO: &[u8] = b"samp-view-tag";
@@ -22,6 +23,12 @@ const GROUP_EPH_INFO: &[u8] = b"samp-group-eph";
 const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap";
 
 pub const ENCRYPTED_OVERHEAD: usize = 80;
+
+pub fn random_nonce() -> Result<Nonce, SampError> {
+    let mut bytes = [0u8; 12];
+    getrandom::fill(&mut bytes).map_err(SampError::RandomUnavailable)?;
+    Ok(Nonce::from_bytes(bytes))
+}
 
 // WHY: the single crypto boundary that turns a 32-byte ViewScalar back into a
 // ristretto255 scalar. Every decrypt path funnels through here.
@@ -178,6 +185,16 @@ pub fn encrypt(
     sealed_to.zeroize();
     sym_key.zeroize();
     Ok(Ciphertext::from_bytes(content))
+}
+
+pub fn encrypt_random(
+    plaintext: &Plaintext,
+    recipient_pubkey: &Pubkey,
+    sender_seed: &Seed,
+) -> Result<(Nonce, Ciphertext), SampError> {
+    let nonce = random_nonce()?;
+    let ciphertext = encrypt(plaintext, recipient_pubkey, &nonce, sender_seed)?;
+    Ok((nonce, ciphertext))
 }
 
 pub fn decrypt(
@@ -355,6 +372,17 @@ pub fn encrypt_for_group(
         capsules,
         Ciphertext::from_bytes(ciphertext),
     ))
+}
+
+pub fn encrypt_for_group_random(
+    plaintext: &Plaintext,
+    member_pubkeys: &[Pubkey],
+    sender_seed: &Seed,
+) -> Result<GroupEncryptedWithNonce, SampError> {
+    let nonce = random_nonce()?;
+    let (eph_pubkey, capsules, ciphertext) =
+        encrypt_for_group(plaintext, member_pubkeys, &nonce, sender_seed)?;
+    Ok((nonce, eph_pubkey, capsules, ciphertext))
 }
 
 pub fn decrypt_from_group(

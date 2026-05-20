@@ -1021,6 +1021,7 @@ fn error_display_all_variants() {
         SampError::InvalidVersion(0x20),
         SampError::ReservedContentType(0x16),
         SampError::DecryptionFailed,
+        SampError::RandomUnavailable(getrandom::Error::UNSUPPORTED),
         SampError::InvalidUtf8,
         SampError::InsufficientData,
         SampError::InvalidChannelName,
@@ -1047,6 +1048,8 @@ fn error_display_all_variants() {
     assert!(e.contains("777"));
     let p = format!("{}", SampError::Ss58PrefixUnsupported(100));
     assert!(p.contains("100"));
+    let r = SampError::RandomUnavailable(getrandom::Error::UNSUPPORTED);
+    assert!(std::error::Error::source(&r).is_some());
 }
 
 #[test]

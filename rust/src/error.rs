@@ -5,6 +5,7 @@ pub enum SampError {
     InvalidVersion(u8),
     ReservedContentType(u8),
     DecryptionFailed,
+    RandomUnavailable(getrandom::Error),
     InvalidUtf8,
     InsufficientData,
     InvalidChannelName,
@@ -24,6 +25,7 @@ impl fmt::Display for SampError {
             Self::InvalidVersion(v) => write!(f, "unsupported version: 0x{v:02x}"),
             Self::ReservedContentType(ct) => write!(f, "reserved content type: 0x{ct:02x}"),
             Self::DecryptionFailed => write!(f, "decryption failed"),
+            Self::RandomUnavailable(e) => write!(f, "secure random source unavailable: {e}"),
             Self::InvalidUtf8 => write!(f, "content is not valid UTF-8"),
             Self::InsufficientData => write!(f, "insufficient data"),
             Self::InvalidChannelName => write!(f, "channel name must be 1-32 bytes"),
@@ -44,4 +46,11 @@ impl fmt::Display for SampError {
     }
 }
 
-impl std::error::Error for SampError {}
+impl std::error::Error for SampError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RandomUnavailable(e) => Some(e),
+            _ => None,
+        }
+    }
+}

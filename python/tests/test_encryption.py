@@ -18,6 +18,44 @@ def test_sr25519_sign_differs_for_different_messages() -> None:
     assert bytes(a) != bytes(b)
 
 
+def test_random_nonce_samples_are_well_formed_and_distinct() -> None:
+    nonces = {bytes(samp.random_nonce()) for _ in range(32)}
+    assert len(nonces) == 32
+    assert all(len(n) == 12 for n in nonces)
+
+
+def test_random_nonce_reports_os_random_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_urandom(size: int) -> bytes:
+        raise OSError("rng unavailable")
+
+    monkeypatch.setattr("os.urandom", fail_urandom)
+    with pytest.raises(samp.SampError, match="secure random source unavailable"):
+        samp.random_nonce()
+
+
+def test_encrypt_random_returns_nonce_needed_for_decrypt() -> None:
+    sender = samp.Seed.from_bytes(bytes([0xAA] * 32))
+    recipient = samp.Seed.from_bytes(bytes([0xBB] * 32))
+    plaintext = samp.plaintext_from_bytes(b"secret")
+    nonce, ciphertext = samp.encrypt_random(plaintext, samp.public_from_seed(recipient), sender)
+    decrypted = samp.decrypt(ciphertext, nonce, samp.sr25519_signing_scalar(recipient))
+    assert decrypted == plaintext
+
+
+def test_encrypt_for_group_random_returns_nonce_needed_for_decrypt() -> None:
+    sender = samp.Seed.from_bytes(bytes([0xAA] * 32))
+    recipient = samp.Seed.from_bytes(bytes([0xBB] * 32))
+    plaintext = samp.plaintext_from_bytes(b"group secret")
+    nonce, eph, capsules, ciphertext = samp.encrypt_for_group_random(
+        plaintext, [samp.public_from_seed(recipient)], sender
+    )
+    content = bytes(eph) + bytes(capsules) + bytes(ciphertext)
+    decrypted = samp.decrypt_from_group(
+        content, samp.sr25519_signing_scalar(recipient), nonce, 1
+    )
+    assert decrypted == plaintext
+
+
 def test_derive_group_ephemeral_returns_bytes() -> None:
     seed = samp.Seed.from_bytes(bytes([0xAA] * 32))
     nonce = samp.nonce_from_bytes(bytes([0x01] * 12))

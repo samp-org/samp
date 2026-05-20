@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   Nonce,
   Plaintext,
@@ -9,8 +9,11 @@ import {
   decryptFromGroup,
   deriveGroupEphemeral,
   encrypt,
+  encryptForGroupRandom,
   encryptForGroup,
+  encryptRandom,
   publicFromSeed,
+  randomNonce,
   sr25519SigningScalar,
   unsealRecipient,
 } from "../src/index.js";
@@ -38,6 +41,53 @@ describe("encrypt/decrypt as sender", () => {
 
     const recovered = decryptAsSender(ct, NONCE, SENDER_SEED);
     expect(new TextDecoder().decode(recovered)).toBe("roundtrip test");
+  });
+});
+
+describe("random nonce helpers", () => {
+  it("returns distinct 12-byte nonces", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 32; i++) {
+      const nonce = randomNonce();
+      expect(nonce.length).toBe(12);
+      seen.add(Buffer.from(nonce).toString("hex"));
+    }
+    expect(seen.size).toBe(32);
+  });
+
+  it("throws when Web Crypto is unavailable", () => {
+    vi.stubGlobal("crypto", undefined);
+    try {
+      expect(() => randomNonce()).toThrow("secure random source unavailable");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("encryptRandom returns the nonce needed to decrypt", () => {
+    const recipientPub = publicFromSeed(RECIPIENT_SEED);
+    const recipientScalar = sr25519SigningScalar(RECIPIENT_SEED);
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("secret"));
+    const { nonce, ciphertext } = encryptRandom(pt, recipientPub, SENDER_SEED);
+    const recovered = decrypt(ciphertext, nonce, recipientScalar);
+    expect(new TextDecoder().decode(recovered)).toBe("secret");
+  });
+
+  it("encryptForGroupRandom returns the nonce needed to decrypt", () => {
+    const recipientPub = publicFromSeed(RECIPIENT_SEED);
+    const recipientScalar = sr25519SigningScalar(RECIPIENT_SEED);
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("group secret"));
+    const { nonce, ephPubkey, capsules, ciphertext } = encryptForGroupRandom(
+      pt,
+      [recipientPub],
+      SENDER_SEED,
+    );
+    const content = new Uint8Array(ephPubkey.length + capsules.length + ciphertext.length);
+    content.set(ephPubkey, 0);
+    content.set(capsules, ephPubkey.length);
+    content.set(ciphertext, ephPubkey.length + capsules.length);
+    const recovered = decryptFromGroup(content, recipientScalar, nonce, 1);
+    expect(new TextDecoder().decode(recovered)).toBe("group secret");
   });
 });
 
