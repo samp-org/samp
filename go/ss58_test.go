@@ -66,14 +66,8 @@ func TestSs58DecodeNonASCII(t *testing.T) {
 }
 
 func TestSs58DecodeUnsupportedPrefix(t *testing.T) {
-	// Encode a pubkey with prefix byte = 64 (>= 64 triggers unsupported).
-	// We manually build a base58 string that decodes to a payload with prefix 64.
-	// The simplest way: encode a valid address, then re-encode with a high prefix byte.
-	// Instead, just ensure the error by testing with known invalid addresses.
-	// A valid prefix-0 address starts with "1"; prefix-64+ would be different.
-	// Actually, let's just test through the internal function indirectly.
+	// Ensure malformed high-bit prefix markers fail without panicking.
 	_, err := Ss58AddressParse("2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	// This may produce various errors; the key is no panic.
 	require.Error(t, err)
 }
 
@@ -99,6 +93,20 @@ func TestSs58PrefixBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint16(63), parsed.Prefix().Get())
 
-	_, err = Ss58PrefixNew(64)
+	prefix64, err := Ss58PrefixNew(64)
+	require.NoError(t, err)
+	addr = Ss58AddressEncode(testPubkey, prefix64)
+	parsed, err = Ss58AddressParse(addr.String())
+	require.NoError(t, err)
+	require.Equal(t, uint16(64), parsed.Prefix().Get())
+
+	prefixMax, err := Ss58PrefixNew(16383)
+	require.NoError(t, err)
+	addr = Ss58AddressEncode(testPubkey, prefixMax)
+	parsed, err = Ss58AddressParse(addr.String())
+	require.NoError(t, err)
+	require.Equal(t, uint16(16383), parsed.Prefix().Get())
+
+	_, err = Ss58PrefixNew(16384)
 	require.Error(t, err)
 }

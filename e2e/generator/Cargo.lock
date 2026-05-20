@@ -440,7 +440,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "samp"
+name = "samp-core"
 version = "1.1.0"
 dependencies = [
  "blake2",
@@ -465,7 +465,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hkdf",
- "samp",
+ "samp-core",
  "schnorrkel",
  "serde",
  "serde_json",

@@ -65,15 +65,45 @@ function ss58Checksum(payload: Uint8Array): Uint8Array {
   return h.digest();
 }
 
+function encodePrefix(prefix: Ss58Prefix): Uint8Array {
+  const value = Ss58Prefix.get(prefix);
+  if (value < 64) return new Uint8Array([value]);
+  return new Uint8Array([
+    ((value & 0b0000_0000_1111_1100) >> 2) | 0b0100_0000,
+    (value >> 8) | ((value & 0b0000_0000_0000_0011) << 6),
+  ]);
+}
+
+function decodePrefix(decoded: Uint8Array): [number, number] {
+  const first = decoded[0];
+  if (first === undefined) throw new SampError("ss58 too short");
+  if ((first & 0b1000_0000) !== 0) {
+    throw new SampError(`ss58 prefix unsupported: ${first}`);
+  }
+  if ((first & 0b0100_0000) === 0) return [first, 1];
+  const second = decoded[1];
+  if (second === undefined) throw new SampError("ss58 too short");
+  return [
+    ((first & 0b0011_1111) << 2) | (second >> 6) | ((second & 0b0011_1111) << 8),
+    2,
+  ];
+}
+
 function encode(pubkey: Pubkey, prefix: Ss58Prefix): Ss58Address {
-  const payload = new Uint8Array(1 + 32);
-  payload[0] = Ss58Prefix.get(prefix);
-  payload.set(pubkey, 1);
+  const prefixBytes = encodePrefix(prefix);
+  const payload = new Uint8Array(prefixBytes.length + 32);
+  payload.set(prefixBytes, 0);
+  payload.set(pubkey, prefixBytes.length);
   const sum = ss58Checksum(payload);
-  const full = new Uint8Array(35);
+  const checksum0 = sum[0];
+  const checksum1 = sum[1];
+  if (checksum0 === undefined || checksum1 === undefined) {
+    throw new SampError("ss58 checksum unavailable");
+  }
+  const full = new Uint8Array(payload.length + 2);
   full.set(payload, 0);
-  full[33] = sum[0] ?? 0;
-  full[34] = sum[1] ?? 0;
+  full[payload.length] = checksum0;
+  full[payload.length + 1] = checksum1;
   return Ss58Address.fromParts(bs58Encode(full), pubkey, prefix);
 }
 
@@ -81,18 +111,18 @@ function parse(s: string): Ss58Address {
   const decoded = bs58Decode(s);
   if (decoded === null) throw new SampError("ss58 invalid base58");
   if (decoded.length < 35) throw new SampError("ss58 too short");
-  const prefixByte = decoded[0];
-  if (prefixByte === undefined || prefixByte >= 64) {
-    throw new SampError(`ss58 prefix unsupported: ${prefixByte ?? -1}`);
-  }
-  const payload = decoded.subarray(0, 33);
-  const expected = decoded.subarray(33, 35);
+  const [prefixValue, prefixLen] = decodePrefix(decoded);
+  const pubkeyEnd = prefixLen + 32;
+  if (decoded.length < pubkeyEnd + 2) throw new SampError("ss58 too short");
+  if (decoded.length !== pubkeyEnd + 2) throw new SampError("ss58 bad checksum");
+  const payload = decoded.subarray(0, pubkeyEnd);
+  const expected = decoded.subarray(pubkeyEnd, pubkeyEnd + 2);
   const sum = ss58Checksum(payload);
   if (sum[0] !== expected[0] || sum[1] !== expected[1]) {
     throw new SampError("ss58 bad checksum");
   }
-  const pubkey = Pubkey.fromBytes(decoded.slice(1, 33));
-  const prefix = Ss58Prefix.from(prefixByte);
+  const pubkey = Pubkey.fromBytes(decoded.slice(prefixLen, pubkeyEnd));
+  const prefix = Ss58Prefix.from(prefixValue);
   return Ss58Address.fromParts(s, pubkey, prefix);
 }
 

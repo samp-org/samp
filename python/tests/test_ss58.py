@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from samp import SampError, Ss58Address, pubkey_from_bytes, ss58_prefix_from_int
+
+VECTORS_PATH = Path(__file__).resolve().parent.parent.parent / "e2e" / "test-vectors.json"
 
 
 def _alice_pk() -> bytes:
@@ -51,8 +56,22 @@ def test_ss58_decode_empty():
 
 def test_ss58_prefix_boundary():
     assert ss58_prefix_from_int(63) == 63
+    assert ss58_prefix_from_int(64) == 64
+    assert ss58_prefix_from_int(16_383) == 16_383
     with pytest.raises(SampError):
-        ss58_prefix_from_int(64)
+        ss58_prefix_from_int(16_384)
+
+
+def test_ss58_vectors_round_trip_boundary_prefixes():
+    vectors = json.loads(VECTORS_PATH.read_text())["ss58"]
+    pk = pubkey_from_bytes(bytes.fromhex(vectors["pubkey"].removeprefix("0x")))
+    for case in vectors["cases"]:
+        prefix = ss58_prefix_from_int(case["prefix"])
+        addr = Ss58Address.encode(pk, prefix)
+        assert addr.as_str() == case["address"]
+        decoded = Ss58Address.parse(case["address"])
+        assert bytes(decoded.pubkey()) == bytes(pk)
+        assert int(decoded.prefix()) == case["prefix"]
 
 
 def test_ss58_decode_invalid_base58_char():

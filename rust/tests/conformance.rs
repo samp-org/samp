@@ -140,6 +140,18 @@ struct NegativeCases {
 }
 
 #[derive(Deserialize)]
+struct Ss58CaseVec {
+    prefix: u16,
+    address: String,
+}
+
+#[derive(Deserialize)]
+struct Ss58Vec {
+    pubkey: String,
+    cases: Vec<Ss58CaseVec>,
+}
+
+#[derive(Deserialize)]
 struct TestVectors {
     alice: KeypairVec,
     bob: KeypairVec,
@@ -153,6 +165,7 @@ struct TestVectors {
     group_message: GroupMsgVec,
     edge_cases: EdgeCases,
     negative_cases: NegativeCases,
+    ss58: Ss58Vec,
 }
 
 fn load_vectors() -> TestVectors {
@@ -554,8 +567,8 @@ fn ss58_prefix_63_valid() {
 }
 
 #[test]
-fn ss58_prefix_64_invalid() {
-    assert!(Ss58Prefix::new(64).is_err());
+fn ss58_prefix_64_valid() {
+    assert!(Ss58Prefix::new(64).is_ok());
 }
 
 // --- Phase 2: Types + Secret tests ---
@@ -683,7 +696,8 @@ fn group_encrypt_single_member() {
     };
 
     let member_scalar = encryption::sr25519_signing_scalar(&member_seed);
-    let recovered = encryption::decrypt_from_group(&content, &nonce, &member_scalar, Some(1)).unwrap();
+    let recovered =
+        encryption::decrypt_from_group(&content, &nonce, &member_scalar, Some(1)).unwrap();
     assert_eq!(recovered.as_bytes(), plaintext.as_bytes());
 }
 
@@ -747,7 +761,10 @@ fn channel_create_round_trip() {
 #[test]
 fn content_type_application_round_trip() {
     assert_eq!(ContentType::Application(0x18).to_byte(), 0x18);
-    assert_eq!(ContentType::from_byte(0x18).unwrap(), ContentType::Application(0x18));
+    assert_eq!(
+        ContentType::from_byte(0x18).unwrap(),
+        ContentType::Application(0x18)
+    );
 }
 
 #[test]
@@ -979,7 +996,8 @@ fn type_ss58_prefix_round_trip() {
     assert_eq!(Ss58Prefix::SUBSTRATE_GENERIC.get(), 42);
     assert_eq!(Ss58Prefix::POLKADOT.get(), 0);
     assert_eq!(Ss58Prefix::KUSAMA.get(), 2);
-    assert!(Ss58Prefix::new(64).is_err());
+    assert_eq!(Ss58Prefix::new(16_383).unwrap().get(), 16_383);
+    assert!(Ss58Prefix::new(16_384).is_err());
 }
 
 #[test]
@@ -1207,7 +1225,10 @@ fn decode_remark_channel_body() {
         BlockRef::ZERO,
         "hello",
     );
-    let Remark::Channel { body, channel_ref, .. } = decode_remark(&remark).unwrap() else {
+    let Remark::Channel {
+        body, channel_ref, ..
+    } = decode_remark(&remark).unwrap()
+    else {
         panic!("expected Channel");
     };
     assert_eq!(body, "hello");
@@ -1250,7 +1271,10 @@ fn decode_group_content_valid() {
 
 #[test]
 fn encode_group_members_round_trip() {
-    let pubs = vec![Pubkey::from_bytes([0xAA; 32]), Pubkey::from_bytes([0xBB; 32])];
+    let pubs = vec![
+        Pubkey::from_bytes([0xAA; 32]),
+        Pubkey::from_bytes([0xBB; 32]),
+    ];
     let encoded = encode_group_members(&pubs);
     let (decoded, remaining) = decode_group_members(&encoded).unwrap();
     assert_eq!(decoded.len(), 2);
@@ -1337,7 +1361,17 @@ fn scale_decode_compact_modes() {
 
 #[test]
 fn scale_encode_compact_round_trip() {
-    for val in [0u64, 1, 63, 64, 16383, 16384, (1 << 30) - 1, 1 << 30, u64::MAX] {
+    for val in [
+        0u64,
+        1,
+        63,
+        64,
+        16383,
+        16384,
+        (1 << 30) - 1,
+        1 << 30,
+        u64::MAX,
+    ] {
         let mut buf = Vec::new();
         samp::encode_compact(val, &mut buf);
         let (decoded, _) = samp::decode_compact(&buf).unwrap();
@@ -1400,13 +1434,25 @@ fn build_and_extract_extrinsic_round_trip() {
 #[test]
 fn content_type_from_byte_all_known() {
     assert_eq!(ContentType::from_byte(0x10).unwrap(), ContentType::Public);
-    assert_eq!(ContentType::from_byte(0x11).unwrap(), ContentType::Encrypted);
+    assert_eq!(
+        ContentType::from_byte(0x11).unwrap(),
+        ContentType::Encrypted
+    );
     assert_eq!(ContentType::from_byte(0x12).unwrap(), ContentType::Thread);
-    assert_eq!(ContentType::from_byte(0x13).unwrap(), ContentType::ChannelCreate);
+    assert_eq!(
+        ContentType::from_byte(0x13).unwrap(),
+        ContentType::ChannelCreate
+    );
     assert_eq!(ContentType::from_byte(0x14).unwrap(), ContentType::Channel);
     assert_eq!(ContentType::from_byte(0x15).unwrap(), ContentType::Group);
-    assert_eq!(ContentType::from_byte(0x18).unwrap(), ContentType::Application(0x18));
-    assert_eq!(ContentType::from_byte(0x1F).unwrap(), ContentType::Application(0x1F));
+    assert_eq!(
+        ContentType::from_byte(0x18).unwrap(),
+        ContentType::Application(0x18)
+    );
+    assert_eq!(
+        ContentType::from_byte(0x1F).unwrap(),
+        ContentType::Application(0x1F)
+    );
 }
 
 #[test]
@@ -1556,11 +1602,20 @@ fn metadata_error_display_all_variants() {
         Error::UnknownStorageEntryType(99),
         Error::UnknownPrimitive(99),
         Error::InvalidOptionTag(99),
-        Error::NonSequential { got: 5, expected: 3 },
+        Error::NonSequential {
+            got: 5,
+            expected: 3,
+        },
         Error::TypeIdMissing(42),
-        Error::Shape { ctx: "foo", kind: "bar" },
+        Error::Shape {
+            ctx: "foo",
+            kind: "bar",
+        },
         Error::VariableWidth(7),
-        Error::StorageNotFound { pallet: "P".into(), entry: "E".into() },
+        Error::StorageNotFound {
+            pallet: "P".into(),
+            entry: "E".into(),
+        },
         Error::FieldNotFound { field: "f".into() },
         Error::AccountInfoShort { need: 32, got: 16 },
     ];
@@ -1587,10 +1642,7 @@ fn error_table_from_entries_and_humanize() {
         variant: "InsufficientBalance".into(),
         doc: String::new(),
     };
-    let table = ErrorTable::from_entries([
-        ((0, 0), entry_with_doc),
-        ((1, 0), entry_no_doc),
-    ]);
+    let table = ErrorTable::from_entries([((0, 0), entry_with_doc), ((1, 0), entry_no_doc)]);
     // humanize with doc
     let h = table.humanize(0, 0).unwrap();
     assert!(h.contains("System::BadOrigin"));
@@ -1598,7 +1650,10 @@ fn error_table_from_entries_and_humanize() {
     // humanize without doc — format is "Pallet::Variant" (no trailing ": doc")
     let h2 = table.humanize(1, 0).unwrap();
     assert!(h2.contains("Balances::InsufficientBalance"));
-    assert!(!h2.contains(": "), "no-doc variant should not have ': ' suffix");
+    assert!(
+        !h2.contains(": "),
+        "no-doc variant should not have ': ' suffix"
+    );
     // unknown
     assert!(table.humanize(99, 99).is_none());
 }
@@ -1623,7 +1678,10 @@ fn error_table_iter() {
 #[test]
 fn storage_layout_decode_uint_valid() {
     use samp::metadata::StorageLayout;
-    let layout = StorageLayout { offset: 2, width: 4 };
+    let layout = StorageLayout {
+        offset: 2,
+        width: 4,
+    };
     let data = vec![0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0xFF];
     let val = layout.decode_uint(&data).unwrap();
     assert_eq!(val, 0x42);
@@ -1632,10 +1690,16 @@ fn storage_layout_decode_uint_valid() {
 #[test]
 fn storage_layout_decode_uint_short_data() {
     use samp::metadata::StorageLayout;
-    let layout = StorageLayout { offset: 0, width: 8 };
+    let layout = StorageLayout {
+        offset: 0,
+        width: 8,
+    };
     let data = vec![0x01, 0x02];
     let err = layout.decode_uint(&data).unwrap_err();
-    assert!(matches!(err, samp::metadata::Error::AccountInfoShort { .. }));
+    assert!(matches!(
+        err,
+        samp::metadata::Error::AccountInfoShort { .. }
+    ));
 }
 
 // --- metadata.rs: Metadata::errors() ---
@@ -1719,7 +1783,7 @@ fn extract_call_with_mortal_era() {
     let mut patched = bytes.to_vec();
     // Set era to non-zero value (mortal era encoding: 2 bytes)
     patched[era_offset] = 0x40; // non-zero era first byte
-    // Insert a second era byte
+                                // Insert a second era byte
     patched.insert(era_offset + 1, 0x00);
     // Update the compact length prefix
     let new_payload_len = patched.len() - prefix_len;
@@ -1735,28 +1799,26 @@ fn extract_call_with_mortal_era() {
     let _ = result;
 }
 
-// --- ss58.rs: decode with prefix >= 64 ---
+// --- ss58.rs: one-byte and two-byte prefixes ---
 
 #[test]
-fn ss58_decode_high_prefix_rejected() {
-    // Encode a valid address then re-encode the payload with a high prefix byte
-    // to trigger the Ss58PrefixUnsupported path in decode
-    use blake2::Digest;
-    let pk = [0xAAu8; 32];
-    let prefix_byte: u8 = 64; // >= 64, rejected
-    let mut payload = Vec::with_capacity(35);
-    payload.push(prefix_byte);
-    payload.extend_from_slice(&pk);
-    let mut hasher = blake2::Blake2b512::new();
-    hasher.update(b"SS58PRE");
-    hasher.update(&payload);
-    let hash = hasher.finalize();
-    payload.extend_from_slice(&hash[..2]);
+fn ss58_vectors_round_trip_boundary_prefixes() {
+    let vectors = load_vectors();
+    let pubkey = pubkey(&vectors.ss58.pubkey);
+    for case in vectors.ss58.cases {
+        let prefix = Ss58Prefix::new(case.prefix).unwrap();
+        let encoded = pubkey.to_ss58(prefix);
+        assert_eq!(encoded.as_str(), case.address);
+        let decoded = Ss58Address::parse(&case.address).unwrap();
+        assert_eq!(*decoded.pubkey(), pubkey);
+        assert_eq!(decoded.prefix(), prefix);
+    }
+}
 
-    // Base58 encode manually via encode then decode
-    // We can't easily bs58 encode here, but we can test via the existing parse path
-    // Instead, just test that Ss58Prefix::new(64) fails
-    assert!(Ss58Prefix::new(64).is_err());
+#[test]
+fn ss58_prefix_16383_valid_16384_invalid() {
+    assert!(Ss58Prefix::new(16_383).is_ok());
+    assert!(Ss58Prefix::new(16_384).is_err());
 }
 
 // ===== Coverage gap tests =====
@@ -2178,16 +2240,14 @@ fn decrypt_from_group_trial_aead_exhausted_fails() {
     assert!(encryption::decrypt_from_group(&content, &nonce, &wrong_scalar, None).is_err());
 }
 
-// --- ss58.rs: decode with prefix byte >= 64 (line 26) ---
+// --- ss58.rs: decode with unsupported prefix marker ---
 
 #[test]
-fn ss58_decode_prefix_64_in_payload() {
-    // Manually construct a base58-encoded payload where the first decoded byte is 64
-    // The simplest way: encode an address with prefix 63 (valid), then try to decode
-    // a corrupted version where the prefix byte becomes 64
+fn ss58_decode_reserved_high_bit_prefix_marker() {
+    // Manually construct a base58-encoded payload with a reserved high-bit prefix marker.
     use blake2::Digest;
     let pk = [0xBB; 32];
-    let prefix_byte: u8 = 64;
+    let prefix_byte: u8 = 128;
     let mut payload = vec![prefix_byte];
     payload.extend_from_slice(&pk);
     let mut hasher = blake2::Blake2b512::new();

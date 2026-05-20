@@ -104,5 +104,34 @@
     "non_samp_version": "0x2100",
     "reserved_type": "0x17",
     "truncated_encrypted": "0x12000102"
+  },
+  "ss58": {
+    "pubkey": "0x8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48",
+    "cases": [
+      {
+        "prefix": 0,
+        "address": "14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3"
+      },
+      {
+        "prefix": 42,
+        "address": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+      },
+      {
+        "prefix": 63,
+        "address": "7Lpe5LRa2Ntx9KGDk77xzoBPYTCAvj7QqaBx4Nz2TFqL3sLw"
+      },
+      {
+        "prefix": 64,
+        "address": "cEYoHYutFpXcexmxW4JMuaK2JzGqnVYxL7WxeGScJuR4t4bFg"
+      },
+      {
+        "prefix": 255,
+        "address": "yGFxbGGNhpzjSAKB7iU4FRoxjKetFPqxqwEucsa8nqudSJANV"
+      },
+      {
+        "prefix": 16383,
+        "address": "yNYZ9YmV73KqE11fLn1UkDaiW3DtmrPddpVotddem1n6A2RWL"
+      }
+    ]
   }
 }

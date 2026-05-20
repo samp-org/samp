@@ -203,7 +203,7 @@ var (
 )
 
 func Ss58PrefixNew(v uint16) (Ss58Prefix, error) {
-	if v > 63 {
+	if v > 16383 {
 		return Ss58Prefix{}, fmt.Errorf("%w: %d", ErrSs58PrefixUnsupported, v)
 	}
 	return Ss58Prefix{v}, nil
