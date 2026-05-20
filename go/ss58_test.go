@@ -66,9 +66,8 @@ func TestSs58DecodeNonASCII(t *testing.T) {
 }
 
 func TestSs58DecodeUnsupportedPrefix(t *testing.T) {
-	// Ensure malformed high-bit prefix markers fail without panicking.
-	_, err := Ss58AddressParse("2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	require.Error(t, err)
+	_, _, err := ss58DecodePrefix([]byte{0b10000000})
+	require.ErrorIs(t, err, ErrSs58PrefixUnsupported)
 }
 
 func TestBs58EncodeEmpty(t *testing.T) {
@@ -83,6 +82,25 @@ func TestBs58DecodeInvalidCharacter(t *testing.T) {
 
 	_, ok = bs58Decode("Oinvalid")
 	require.False(t, ok)
+}
+
+func TestSs58DecodeTwoBytePrefixTooShort(t *testing.T) {
+	_, _, err := ss58DecodePrefix([]byte{0b01000000})
+	require.ErrorIs(t, err, ErrSs58TooShort)
+}
+
+func TestSs58DecodeTwoBytePayloadMissingChecksumByte(t *testing.T) {
+	raw := append([]byte{0b01000000, 0}, make([]byte, 33)...)
+
+	_, err := Ss58AddressParse(bs58Encode(raw))
+	require.ErrorIs(t, err, ErrSs58TooShort)
+}
+
+func TestSs58DecodeExtraPayloadBytes(t *testing.T) {
+	raw := append([]byte{42}, make([]byte, 35)...)
+
+	_, err := Ss58AddressParse(bs58Encode(raw))
+	require.ErrorIs(t, err, ErrSs58BadChecksum)
 }
 
 func TestSs58PrefixBoundary(t *testing.T) {

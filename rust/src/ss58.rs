@@ -137,3 +137,32 @@ fn bs58_encode(data: &[u8]) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_prefix_rejects_truncated_two_byte_prefix() {
+        assert!(matches!(
+            decode_prefix(&[0b0100_0000]),
+            Err(SampError::Ss58TooShort)
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_extra_payload_bytes() {
+        let mut raw = vec![42u8];
+        raw.extend_from_slice(&[1u8; 35]);
+
+        assert!(matches!(
+            decode(&bs58_encode(&raw)),
+            Err(SampError::Ss58BadChecksum)
+        ));
+    }
+
+    #[test]
+    fn bs58_encode_empty_is_empty() {
+        assert_eq!(bs58_encode(&[]), "");
+    }
+}

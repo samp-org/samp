@@ -95,15 +95,10 @@ function encode(pubkey: Pubkey, prefix: Ss58Prefix): Ss58Address {
   payload.set(prefixBytes, 0);
   payload.set(pubkey, prefixBytes.length);
   const sum = ss58Checksum(payload);
-  const checksum0 = sum[0];
-  const checksum1 = sum[1];
-  if (checksum0 === undefined || checksum1 === undefined) {
-    throw new SampError("ss58 checksum unavailable");
-  }
   const full = new Uint8Array(payload.length + 2);
   full.set(payload, 0);
-  full[payload.length] = checksum0;
-  full[payload.length + 1] = checksum1;
+  full[payload.length] = sum[0]!;
+  full[payload.length + 1] = sum[1]!;
   return Ss58Address.fromParts(bs58Encode(full), pubkey, prefix);
 }
 

@@ -81,10 +81,40 @@ def test_ss58_decode_invalid_base58_char():
 
 def test_ss58_decode_high_unicode():
     with pytest.raises(SampError):
-        Ss58Address.parse("\u00ff" * 48)
+        Ss58Address.parse("\u0100" * 48)
 
 
 def test_ss58_encode_empty_data():
     from samp.ss58 import _bs58_encode
 
     assert _bs58_encode(b"") == ""
+
+
+def test_ss58_decode_rejects_two_byte_prefix_without_second_byte():
+    from samp.ss58 import _decode_prefix
+
+    with pytest.raises(SampError, match="too short"):
+        _decode_prefix(bytes([0b0100_0000]))
+
+
+def test_ss58_decode_rejects_reserved_high_bit_prefix():
+    from samp.ss58 import _decode_prefix
+
+    with pytest.raises(SampError, match="prefix unsupported"):
+        _decode_prefix(bytes([0b1000_0000]))
+
+
+def test_ss58_decode_rejects_two_byte_payload_missing_checksum_byte():
+    from samp.ss58 import _bs58_encode
+
+    raw = bytes([0b0100_0000, 0]) + bytes(32) + bytes([0])
+    with pytest.raises(SampError, match="too short"):
+        Ss58Address.parse(_bs58_encode(raw))
+
+
+def test_ss58_decode_rejects_extra_payload_bytes():
+    from samp.ss58 import _bs58_encode
+
+    raw = bytes([42]) + bytes(32) + bytes(3)
+    with pytest.raises(SampError, match="bad checksum"):
+        Ss58Address.parse(_bs58_encode(raw))
