@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/blake2b"
 )
 
 var testPubkey = PubkeyFromBytes([32]byte{
@@ -11,6 +12,15 @@ var testPubkey = PubkeyFromBytes([32]byte{
 	0x04, 0xa9, 0x9f, 0xd6, 0x82, 0x2c, 0x85, 0x58, 0x85, 0x4c, 0xcd, 0xe3,
 	0x9a, 0x56, 0x84, 0xe7, 0xa5, 0x6d, 0xa2, 0x7d,
 })
+
+func rawSs58Address(payload []byte) string {
+	h, _ := blake2b.New512(nil)
+	h.Write([]byte("SS58PRE"))
+	h.Write(payload)
+	sum := h.Sum(nil)
+	raw := append(append([]byte{}, payload...), sum[:2]...)
+	return bs58Encode(raw)
+}
 
 func TestSs58EncodeDecodeRoundTrip(t *testing.T) {
 	addr := Ss58AddressEncode(testPubkey, Ss58SubstrateGeneric)
@@ -67,6 +77,14 @@ func TestSs58DecodeNonASCII(t *testing.T) {
 
 func TestSs58DecodeUnsupportedPrefix(t *testing.T) {
 	_, _, err := ss58DecodePrefix([]byte{0b10000000})
+	require.ErrorIs(t, err, ErrSs58PrefixUnsupported)
+}
+
+func TestSs58ParseUnsupportedPrefix(t *testing.T) {
+	pk := testPubkey.Bytes()
+	payload := append([]byte{0b10000000}, pk[:]...)
+
+	_, err := Ss58AddressParse(rawSs58Address(payload))
 	require.ErrorIs(t, err, ErrSs58PrefixUnsupported)
 }
 

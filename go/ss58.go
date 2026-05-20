@@ -49,10 +49,7 @@ func ss58Decode(s string) (Ss58Address, error) {
 	}
 	var pk [32]byte
 	copy(pk[:], decoded[prefixLen:pubkeyEnd])
-	prefix, err := Ss58PrefixNew(prefixValue)
-	if err != nil {
-		return Ss58Address{}, err
-	}
+	prefix := Ss58Prefix{prefixValue}
 	return Ss58Address{address: s, pubkey: Pubkey{pk}, prefix: prefix}, nil
 }
 

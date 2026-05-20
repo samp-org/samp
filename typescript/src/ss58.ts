@@ -75,14 +75,12 @@ function encodePrefix(prefix: Ss58Prefix): Uint8Array {
 }
 
 function decodePrefix(decoded: Uint8Array): [number, number] {
-  const first = decoded[0];
-  if (first === undefined) throw new SampError("ss58 too short");
+  const first = decoded[0]!;
   if ((first & 0b1000_0000) !== 0) {
     throw new SampError(`ss58 prefix unsupported: ${first}`);
   }
   if ((first & 0b0100_0000) === 0) return [first, 1];
-  const second = decoded[1];
-  if (second === undefined) throw new SampError("ss58 too short");
+  const second = decoded[1]!;
   return [
     ((first & 0b0011_1111) << 2) | (second >> 6) | ((second & 0b0011_1111) << 8),
     2,
