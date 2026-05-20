@@ -1050,6 +1050,7 @@ fn error_display_all_variants() {
     assert!(p.contains("100"));
     let r = SampError::RandomUnavailable(getrandom::Error::UNSUPPORTED);
     assert!(std::error::Error::source(&r).is_some());
+    assert!(std::error::Error::source(&SampError::InsufficientData).is_none());
 }
 
 #[test]

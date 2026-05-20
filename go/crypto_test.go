@@ -3,6 +3,7 @@ package samp
 import (
 	"crypto/rand"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,30 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) {
 	return 0, errors.New("rng unavailable")
+}
+
+type nonceThenFailingReader struct {
+	calls int
+}
+
+func (r *nonceThenFailingReader) Read(p []byte) (int, error) {
+	if r.calls > 0 {
+		return 0, errors.New("content key rng unavailable")
+	}
+	r.calls++
+	for i := range p {
+		p[i] = byte(i + 1)
+	}
+	return len(p), nil
+}
+
+func withRandomReader(t *testing.T, reader io.Reader) {
+	t.Helper()
+	original := rand.Reader
+	rand.Reader = reader
+	t.Cleanup(func() {
+		rand.Reader = original
+	})
 }
 
 func randomSeed(t *testing.T) Seed {
@@ -42,11 +67,7 @@ func TestRandomNonceSamplesAreWellFormedAndDistinct(t *testing.T) {
 }
 
 func TestRandomNonceReturnsRngFailure(t *testing.T) {
-	original := rand.Reader
-	rand.Reader = failingReader{}
-	defer func() {
-		rand.Reader = original
-	}()
+	withRandomReader(t, failingReader{})
 
 	_, err := RandomNonce()
 	require.ErrorContains(t, err, "rng unavailable")
@@ -63,6 +84,33 @@ func TestEncryptRandomReturnsNonceNeededForDecrypt(t *testing.T) {
 	plaintext, err := Decrypt(ciphertext, nonce, recipientScalar)
 	require.NoError(t, err)
 	require.Equal(t, []byte("secret"), plaintext.Bytes())
+}
+
+func TestEncryptRandomReturnsRngFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, failingReader{})
+
+	_, _, err := EncryptRandom(
+		PlaintextFromBytes([]byte("secret")),
+		recipientPub,
+		sender,
+	)
+	require.ErrorContains(t, err, "rng unavailable")
+}
+
+func TestEncryptRandomReturnsEncryptFailure(t *testing.T) {
+	var bad [32]byte
+	for i := range bad {
+		bad[i] = 0xFF
+	}
+
+	_, _, err := EncryptRandom(
+		PlaintextFromBytes([]byte("secret")),
+		PubkeyFromBytes(bad),
+		randomSeed(t),
+	)
+	require.ErrorIs(t, err, ErrInvalidPoint)
 }
 
 func TestEncryptForGroupRandomReturnsNonceNeededForDecrypt(t *testing.T) {
@@ -84,6 +132,32 @@ func TestEncryptForGroupRandomReturnsNonceNeededForDecrypt(t *testing.T) {
 	plaintext, err := DecryptFromGroup(content, recipientScalar, nonce, 1)
 	require.NoError(t, err)
 	require.Equal(t, []byte("group secret"), plaintext.Bytes())
+}
+
+func TestEncryptForGroupRandomReturnsNonceFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, failingReader{})
+
+	_, _, _, _, err := EncryptForGroupRandom(
+		PlaintextFromBytes([]byte("group secret")),
+		[]Pubkey{recipientPub},
+		sender,
+	)
+	require.ErrorContains(t, err, "rng unavailable")
+}
+
+func TestEncryptForGroupRandomReturnsContentKeyFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, &nonceThenFailingReader{})
+
+	_, _, _, _, err := EncryptForGroupRandom(
+		PlaintextFromBytes([]byte("group secret")),
+		[]Pubkey{recipientPub},
+		sender,
+	)
+	require.ErrorContains(t, err, "content key rng unavailable")
 }
 
 func TestDecryptCorruptedCiphertextBody(t *testing.T) {

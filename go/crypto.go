@@ -327,7 +327,7 @@ func EncryptForGroup(plaintext Plaintext, members []Pubkey, nonce Nonce, senderS
 	ephPub := new(ristretto255.Element).ScalarBaseMult(ephScalar)
 
 	var ck [32]byte
-	if _, err := rand.Read(ck[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, ck[:]); err != nil {
 		return EphPubkey{}, Capsules{}, Ciphertext{}, err
 	}
 	contentKey := ContentKey{ck}
