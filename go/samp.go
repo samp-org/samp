@@ -227,15 +227,7 @@ func DecodeRemark(remark RemarkBytes) (Remark, error) {
 		if err != nil {
 			return nil, err
 		}
-		cn, err := ChannelNameParse(name)
-		if err != nil {
-			return nil, err
-		}
-		cd, err := ChannelDescriptionParse(desc)
-		if err != nil {
-			return nil, err
-		}
-		return ChannelCreateRemark{Name: cn, Description: cd}, nil
+		return ChannelCreateRemark{Name: name, Description: desc}, nil
 
 	case 0x04:
 		if len(data) < 19 {
@@ -268,27 +260,34 @@ func DecodeRemark(remark RemarkBytes) (Remark, error) {
 	}
 }
 
-func decodeChannelCreatePayload(data []byte) (string, string, error) {
+func decodeChannelCreatePayload(data []byte) (ChannelName, ChannelDescription, error) {
 	if len(data) < 2 {
-		return "", "", ErrInsufficientData
+		return ChannelName{}, ChannelDescription{}, ErrInsufficientData
 	}
 	nameLen := int(data[0])
 	if nameLen == 0 || nameLen > ChannelNameMax {
-		return "", "", ErrInvalidChannelName
+		return ChannelName{}, ChannelDescription{}, ErrInvalidChannelName
 	}
 	if len(data) < 1+nameLen+1 {
-		return "", "", ErrInsufficientData
+		return ChannelName{}, ChannelDescription{}, ErrInsufficientData
 	}
-	name := string(data[1 : 1+nameLen])
+	name, err := ChannelNameFromBytes(data[1 : 1+nameLen])
+	if err != nil {
+		return ChannelName{}, ChannelDescription{}, err
+	}
 	descOff := 1 + nameLen
 	descLen := int(data[descOff])
 	if descLen > ChannelDescMax {
-		return "", "", ErrInvalidChannelDesc
+		return ChannelName{}, ChannelDescription{}, ErrInvalidChannelDesc
 	}
 	if len(data) < descOff+1+descLen {
-		return "", "", ErrInsufficientData
+		return ChannelName{}, ChannelDescription{}, ErrInsufficientData
 	}
-	return name, string(data[descOff+1 : descOff+1+descLen]), nil
+	desc, err := ChannelDescriptionFromBytes(data[descOff+1 : descOff+1+descLen])
+	if err != nil {
+		return ChannelName{}, ChannelDescription{}, err
+	}
+	return name, desc, nil
 }
 
 func EncodeThreadContent(thread, replyTo, continues BlockRef, body []byte) Plaintext {
