@@ -20,6 +20,14 @@ var (
 	ErrInvalidPoint     = errors.New("samp: invalid ristretto255 point")
 )
 
+func RandomNonce() (Nonce, error) {
+	var bytes [12]byte
+	if _, err := io.ReadFull(rand.Reader, bytes[:]); err != nil {
+		return Nonce{}, err
+	}
+	return NonceFromBytes(bytes), nil
+}
+
 // WHY: the single crypto boundary that turns a 32-byte ViewScalar into a
 // ristretto255.Scalar. Every decrypt path funnels through here.
 func viewScalarToRistretto(v ViewScalar) *ristretto255.Scalar {
@@ -157,6 +165,18 @@ func Encrypt(plaintext Plaintext, recipientPub Pubkey, nonce Nonce, senderSeed S
 	out = append(out, sealedTo[:]...)
 	out = append(out, ciphertextWithTag...)
 	return Ciphertext{out}, nil
+}
+
+func EncryptRandom(plaintext Plaintext, recipientPub Pubkey, senderSeed Seed) (Nonce, Ciphertext, error) {
+	nonce, err := RandomNonce()
+	if err != nil {
+		return Nonce{}, Ciphertext{}, err
+	}
+	ciphertext, err := Encrypt(plaintext, recipientPub, nonce, senderSeed)
+	if err != nil {
+		return Nonce{}, Ciphertext{}, err
+	}
+	return nonce, ciphertext, nil
 }
 
 func Decrypt(ct Ciphertext, nonce Nonce, signingScalar ViewScalar) (Plaintext, error) {
@@ -307,7 +327,7 @@ func EncryptForGroup(plaintext Plaintext, members []Pubkey, nonce Nonce, senderS
 	ephPub := new(ristretto255.Element).ScalarBaseMult(ephScalar)
 
 	var ck [32]byte
-	if _, err := rand.Read(ck[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, ck[:]); err != nil {
 		return EphPubkey{}, Capsules{}, Ciphertext{}, err
 	}
 	contentKey := ContentKey{ck}
@@ -323,6 +343,18 @@ func EncryptForGroup(plaintext Plaintext, members []Pubkey, nonce Nonce, senderS
 	var ephArr [32]byte
 	copy(ephArr[:], ephPub.Encode(nil))
 	return EphPubkey{ephArr}, capsules, Ciphertext{ct}, nil
+}
+
+func EncryptForGroupRandom(plaintext Plaintext, members []Pubkey, senderSeed Seed) (Nonce, EphPubkey, Capsules, Ciphertext, error) {
+	nonce, err := RandomNonce()
+	if err != nil {
+		return Nonce{}, EphPubkey{}, Capsules{}, Ciphertext{}, err
+	}
+	ephPub, capsules, ciphertext, err := EncryptForGroup(plaintext, members, nonce, senderSeed)
+	if err != nil {
+		return Nonce{}, EphPubkey{}, Capsules{}, Ciphertext{}, err
+	}
+	return nonce, ephPub, capsules, ciphertext, nil
 }
 
 func DecryptFromGroup(content []byte, myScalar ViewScalar, nonce Nonce, knownN int) (Plaintext, error) {

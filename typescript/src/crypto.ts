@@ -25,6 +25,14 @@ function mod(n: bigint, m: bigint): bigint {
   return ((n % m) + m) % m;
 }
 
+export function randomNonce(): Nonce {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi === undefined || cryptoApi.getRandomValues === undefined) {
+    throw new SampError("secure random source unavailable");
+  }
+  return Nonce.fromBytes(cryptoApi.getRandomValues(new Uint8Array(12)));
+}
+
 function divideScalarByCofactor(s: Uint8Array): void {
   let low = 0;
   for (let i = s.length - 1; i >= 0; i--) {
@@ -126,6 +134,15 @@ export function encrypt(
   out.set(sealedTo, 32);
   out.set(ctWithTag, 64);
   return Ciphertext.fromBytes(out);
+}
+
+export function encryptRandom(
+  plaintext: Plaintext,
+  recipient: Pubkey,
+  senderSeed: Seed,
+): { nonce: Nonce; ciphertext: Ciphertext } {
+  const nonce = randomNonce();
+  return { nonce, ciphertext: encrypt(plaintext, recipient, nonce, senderSeed) };
 }
 
 export function decrypt(ciphertext: Ciphertext, nonce: Nonce, signingScalar: ViewScalar): Plaintext {
@@ -253,6 +270,15 @@ export function encryptForGroup(
   const cipher = chacha20poly1305(ckRaw, Nonce.chachaBytes(nonce));
   const ct = cipher.encrypt(Plaintext.asBytes(plaintext));
   return { ephPubkey, capsules, ciphertext: Ciphertext.fromBytes(ct) };
+}
+
+export function encryptForGroupRandom(
+  plaintext: Plaintext,
+  memberPubkeys: Pubkey[],
+  senderSeed: Seed,
+): { nonce: Nonce; ephPubkey: EphPubkey; capsules: Capsules; ciphertext: Ciphertext } {
+  const nonce = randomNonce();
+  return { nonce, ...encryptForGroup(plaintext, memberPubkeys, nonce, senderSeed) };
 }
 
 export function decryptFromGroup(

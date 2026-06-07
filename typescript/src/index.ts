@@ -58,7 +58,9 @@ export {
   sr25519Sign,
   sr25519SigningScalar,
   publicFromSeed,
+  randomNonce,
   encrypt,
+  encryptRandom,
   decrypt,
   decryptAsSender,
   computeViewTag,
@@ -67,6 +69,7 @@ export {
   deriveGroupEphemeral,
   buildCapsules,
   encryptForGroup,
+  encryptForGroupRandom,
   decryptFromGroup,
 } from "./crypto.js";
 export { decodeBytes, decodeCompact, encodeCompact } from "./scale.js";

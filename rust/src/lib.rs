@@ -10,8 +10,10 @@ pub mod wire;
 
 pub use encryption::{
     build_capsules, check_view_tag, compute_view_tag, decrypt, decrypt_as_sender,
-    decrypt_from_group, derive_group_ephemeral, encrypt, encrypt_for_group, public_from_seed,
-    sr25519_sign, sr25519_signing_scalar, unseal_recipient, GroupEncrypted, ENCRYPTED_OVERHEAD,
+    decrypt_from_group, derive_group_ephemeral, encrypt, encrypt_for_group,
+    encrypt_for_group_random, encrypt_random, public_from_seed, random_nonce, sr25519_sign,
+    sr25519_signing_scalar, unseal_recipient, GroupEncrypted, GroupEncryptedWithNonce,
+    ENCRYPTED_OVERHEAD,
 };
 pub use error::SampError;
 pub use extrinsic::{

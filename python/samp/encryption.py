@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import samp_crypto
@@ -18,6 +19,7 @@ from samp.types import (
     capsules_from_bytes,
     ciphertext_from_bytes,
     eph_pubkey_from_bytes,
+    nonce_from_bytes,
     plaintext_from_bytes,
     pubkey_from_bytes,
     signature_from_bytes,
@@ -25,6 +27,13 @@ from samp.types import (
 )
 
 ENCRYPTED_OVERHEAD = 80
+
+
+def random_nonce() -> Nonce:
+    try:
+        return nonce_from_bytes(os.urandom(12))
+    except OSError as e:
+        raise SampError(f"secure random source unavailable: {e}") from e
 
 
 def sr25519_sign(seed: Seed, message: bytes) -> Signature:
@@ -48,6 +57,15 @@ def encrypt(
     return ciphertext_from_bytes(
         samp_crypto.encrypt_content(plaintext, recipient, nonce, sender_seed.expose_secret())
     )
+
+
+def encrypt_random(
+    plaintext: Plaintext,
+    recipient: Pubkey,
+    sender_seed: Seed,
+) -> tuple[Nonce, Ciphertext]:
+    nonce = random_nonce()
+    return nonce, encrypt(plaintext, recipient, nonce, sender_seed)
 
 
 def decrypt(
@@ -131,6 +149,16 @@ def encrypt_for_group(
         capsules_from_bytes(caps),
         ciphertext_from_bytes(ct),
     )
+
+
+def encrypt_for_group_random(
+    plaintext: Plaintext,
+    member_pubkeys: list[Pubkey],
+    sender_seed: Seed,
+) -> tuple[Nonce, EphPubkey, Capsules, Ciphertext]:
+    nonce = random_nonce()
+    eph, caps, ct = encrypt_for_group(plaintext, member_pubkeys, nonce, sender_seed)
+    return nonce, eph, caps, ct
 
 
 def decrypt_from_group(

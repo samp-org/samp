@@ -1,6 +1,6 @@
 use samp::encryption::{
     compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group, encrypt, encrypt_for_group,
-    sr25519_signing_scalar,
+    encrypt_for_group_random, encrypt_random, sr25519_signing_scalar,
 };
 use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
@@ -56,6 +56,30 @@ fn br(b: u32, i: u16) -> BlockRef {
 
 fn n(b: u8) -> Nonce {
     Nonce::from_bytes([b; 12])
+}
+
+#[test]
+fn encrypt_random_returns_nonce_needed_for_decrypt() {
+    let plaintext = pt(b"secret message");
+    let (nonce, ciphertext) = encrypt_random(&plaintext, &bob_pubkey(), &alice_seed()).unwrap();
+    let scalar = sr25519_signing_scalar(&bob_seed());
+    let decrypted = decrypt(&ciphertext, &nonce, &scalar).unwrap();
+    assert_eq!(decrypted, plaintext);
+}
+
+#[test]
+fn encrypt_for_group_random_returns_nonce_needed_for_decrypt() {
+    let plaintext = pt(b"group secret");
+    let recipient = bob_pubkey();
+    let (nonce, eph_pubkey, capsules, ciphertext) =
+        encrypt_for_group_random(&plaintext, &[recipient], &alice_seed()).unwrap();
+    let mut content = Vec::new();
+    content.extend_from_slice(eph_pubkey.as_bytes());
+    content.extend_from_slice(capsules.as_bytes());
+    content.extend_from_slice(ciphertext.as_bytes());
+    let scalar = sr25519_signing_scalar(&bob_seed());
+    let decrypted = decrypt_from_group(&content, &nonce, &scalar, Some(1)).unwrap();
+    assert_eq!(decrypted, plaintext);
 }
 
 // Public message (0x10)

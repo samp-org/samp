@@ -2,10 +2,54 @@ package samp
 
 import (
 	"crypto/rand"
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("rng unavailable")
+}
+
+type nonceThenFailingReader struct {
+	calls int
+}
+
+func (r *nonceThenFailingReader) Read(p []byte) (int, error) {
+	if r.calls > 0 {
+		return 0, errors.New("content key rng unavailable")
+	}
+	r.calls++
+	for i := range p {
+		p[i] = byte(i + 1)
+	}
+	return len(p), nil
+}
+
+type deterministicReader struct {
+	readLengths []int
+}
+
+func (r *deterministicReader) Read(p []byte) (int, error) {
+	r.readLengths = append(r.readLengths, len(p))
+	for i := range p {
+		p[i] = byte(i)
+	}
+	return len(p), nil
+}
+
+func withRandomReader(t *testing.T, reader io.Reader) {
+	t.Helper()
+	original := rand.Reader
+	rand.Reader = reader
+	t.Cleanup(func() {
+		rand.Reader = original
+	})
+}
 
 func randomSeed(t *testing.T) Seed {
 	t.Helper()
@@ -21,6 +65,110 @@ func randomNonce(t *testing.T) Nonce {
 	_, err := rand.Read(b[:])
 	require.NoError(t, err)
 	return NonceFromBytes(b)
+}
+
+func TestRandomNonceReadsTwelveBytesFromRandomSource(t *testing.T) {
+	reader := &deterministicReader{}
+	withRandomReader(t, reader)
+
+	nonce, err := RandomNonce()
+	require.NoError(t, err)
+	require.Equal(t, [12]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, nonce.Bytes())
+	require.Equal(t, []int{12}, reader.readLengths)
+}
+
+func TestRandomNonceReturnsRngFailure(t *testing.T) {
+	withRandomReader(t, failingReader{})
+
+	_, err := RandomNonce()
+	require.ErrorContains(t, err, "rng unavailable")
+}
+
+func TestEncryptRandomReturnsNonceNeededForDecrypt(t *testing.T) {
+	sender := randomSeed(t)
+	recipientSeed := randomSeed(t)
+	recipientPub := PublicFromSeed(recipientSeed)
+	recipientScalar := Sr25519SigningScalar(recipientSeed)
+
+	nonce, ciphertext, err := EncryptRandom(PlaintextFromBytes([]byte("secret")), recipientPub, sender)
+	require.NoError(t, err)
+	plaintext, err := Decrypt(ciphertext, nonce, recipientScalar)
+	require.NoError(t, err)
+	require.Equal(t, []byte("secret"), plaintext.Bytes())
+}
+
+func TestEncryptRandomReturnsRngFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, failingReader{})
+
+	_, _, err := EncryptRandom(
+		PlaintextFromBytes([]byte("secret")),
+		recipientPub,
+		sender,
+	)
+	require.ErrorContains(t, err, "rng unavailable")
+}
+
+func TestEncryptRandomReturnsEncryptFailure(t *testing.T) {
+	var bad [32]byte
+	for i := range bad {
+		bad[i] = 0xFF
+	}
+
+	_, _, err := EncryptRandom(
+		PlaintextFromBytes([]byte("secret")),
+		PubkeyFromBytes(bad),
+		randomSeed(t),
+	)
+	require.ErrorIs(t, err, ErrInvalidPoint)
+}
+
+func TestEncryptForGroupRandomReturnsNonceNeededForDecrypt(t *testing.T) {
+	sender := randomSeed(t)
+	recipientSeed := randomSeed(t)
+	recipientPub := PublicFromSeed(recipientSeed)
+	recipientScalar := Sr25519SigningScalar(recipientSeed)
+
+	nonce, ephPub, capsules, ciphertext, err := EncryptForGroupRandom(
+		PlaintextFromBytes([]byte("group secret")),
+		[]Pubkey{recipientPub},
+		sender,
+	)
+	require.NoError(t, err)
+	ephBytes := ephPub.Bytes()
+	content := append([]byte{}, ephBytes[:]...)
+	content = append(content, capsules.Bytes()...)
+	content = append(content, ciphertext.Bytes()...)
+	plaintext, err := DecryptFromGroup(content, recipientScalar, nonce, 1)
+	require.NoError(t, err)
+	require.Equal(t, []byte("group secret"), plaintext.Bytes())
+}
+
+func TestEncryptForGroupRandomReturnsNonceFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, failingReader{})
+
+	_, _, _, _, err := EncryptForGroupRandom(
+		PlaintextFromBytes([]byte("group secret")),
+		[]Pubkey{recipientPub},
+		sender,
+	)
+	require.ErrorContains(t, err, "rng unavailable")
+}
+
+func TestEncryptForGroupRandomReturnsContentKeyFailure(t *testing.T) {
+	sender := randomSeed(t)
+	recipientPub := PublicFromSeed(randomSeed(t))
+	withRandomReader(t, &nonceThenFailingReader{})
+
+	_, _, _, _, err := EncryptForGroupRandom(
+		PlaintextFromBytes([]byte("group secret")),
+		[]Pubkey{recipientPub},
+		sender,
+	)
+	require.ErrorContains(t, err, "content key rng unavailable")
 }
 
 func TestDecryptCorruptedCiphertextBody(t *testing.T) {
