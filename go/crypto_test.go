@@ -67,6 +67,22 @@ func randomNonce(t *testing.T) Nonce {
 	return NonceFromBytes(b)
 }
 
+func fixedSeed(value byte) Seed {
+	var b [32]byte
+	for i := range b {
+		b[i] = value
+	}
+	return SeedFromBytes(b)
+}
+
+func fixedNonce(value byte) Nonce {
+	var b [12]byte
+	for i := range b {
+		b[i] = value
+	}
+	return NonceFromBytes(b)
+}
+
 func TestRandomNonceReadsTwelveBytesFromRandomSource(t *testing.T) {
 	reader := &deterministicReader{}
 	withRandomReader(t, reader)
@@ -311,35 +327,6 @@ func TestBuildCapsulesWithInvalidMemberPoint(t *testing.T) {
 	require.Equal(t, expected, capsules.Bytes())
 }
 
-func TestScanCapsulesNoMatchReturnsNotFound(t *testing.T) {
-	// Construct capsule data where all view tags are 0xAA.
-	capsuleData := make([]byte, CapsuleSize*2)
-	for i := range capsuleData {
-		capsuleData[i] = 0xAA
-	}
-	// Use a real ephemeral pubkey from a seed.
-	seed := randomSeed(t)
-	scalar := Sr25519SigningScalar(seed)
-	pub := PublicFromSeed(seed)
-	nonce := randomNonce(t)
-
-	_, _, found := scanCapsules(capsuleData, EphPubkeyFromBytes(pub.Bytes()), scalar, nonce)
-	// Either the tag happens to match (1/256) or not -- just exercise the path.
-	_ = found
-}
-
-func TestScanCapsulesInvalidEphPubkey(t *testing.T) {
-	capsuleData := make([]byte, CapsuleSize)
-	var badEph [32]byte
-	for i := range badEph {
-		badEph[i] = 0xFF
-	}
-	scalar := Sr25519SigningScalar(randomSeed(t))
-	nonce := randomNonce(t)
-	_, _, found := scanCapsules(capsuleData, EphPubkeyFromBytes(badEph), scalar, nonce)
-	require.False(t, found)
-}
-
 func TestDecryptFromGroupCorruptedCiphertextBody(t *testing.T) {
 	sender := randomSeed(t)
 	nonce := randomNonce(t)
@@ -460,6 +447,34 @@ func TestEncryptForGroupTrialDecryptWithoutKnownN(t *testing.T) {
 
 	scalar := Sr25519SigningScalar(seeds[1])
 	pt, err := DecryptFromGroup(content, scalar, nonce, 0)
+	require.NoError(t, err)
+	require.Equal(t, msg.Bytes(), pt.Bytes())
+}
+
+func TestDecryptFromGroupSkipsCollidingViewTagCapsules(t *testing.T) {
+	sender := fixedSeed(0xAA)
+	alice := fixedSeed(0xAA)
+	bob := fixedSeed(0xBB)
+	nonce := fixedNonce(0xF1)
+	members := []Pubkey{PublicFromSeed(alice), PublicFromSeed(bob)}
+	msg := PlaintextFromBytes([]byte("view tag collision"))
+
+	ephPub, capsules, ct, err := EncryptForGroup(msg, members, nonce, sender)
+	require.NoError(t, err)
+
+	content := make([]byte, 0)
+	epb := ephPub.Bytes()
+	content = append(content, epb[:]...)
+	content = append(content, capsules.Bytes()...)
+	content = append(content, ct.Bytes()...)
+	content[32] = content[32+CapsuleSize]
+
+	scalar := Sr25519SigningScalar(bob)
+	pt, err := DecryptFromGroup(content, scalar, nonce, len(members))
+	require.NoError(t, err)
+	require.Equal(t, msg.Bytes(), pt.Bytes())
+
+	pt, err = DecryptFromGroup(content, scalar, nonce, 0)
 	require.NoError(t, err)
 	require.Equal(t, msg.Bytes(), pt.Bytes())
 }
