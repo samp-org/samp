@@ -303,6 +303,8 @@ Given plaintext `P`, member public keys `[R_1, ..., R_N]`, nonce `N`, sender see
 5. `K = wrapped_key XOR kek`
 6. Decrypt `ciphertext` with `K` and `N`.
 
+In SAMP v1, group ciphertexts use no AEAD AAD, so the capsule list is not authenticated by the ciphertext tag. A group member who learns `K` can rewrap that same content key into additional capsules without changing the ciphertext. This is a known v1 limitation and requires a future wire-major version to fix without breaking existing group messages.
+
 ### 5.8 Sender Self-Decryption
 
 **1:1 mode:** The sender recovers the recipient from `sealed_to`, re-derives the ephemeral, and computes the shared secret:
@@ -362,6 +364,7 @@ SAMP uses Ristretto255 for all asymmetric operations. This does not provide post
 ### 7.1 Known Trade-offs
 
 - **Key reuse for signing and ECDH.** SAMP uses the same expanded sr25519 scalar for both extrinsic signing and Ristretto255 ECDH key agreement. No public attack against this reuse exists, but it is a non-standard cryptographic property: a future cross-protocol attack against sr25519 would compromise SAMP's encryption confidentiality, not just signature forgery. SAMP makes this trade-off so that the recipient's encryption identity is equal to their SS58 address — encrypting to someone requires zero coordination beyond knowing their account.
+- **Group capsule binding.** SAMP v1 group messages do not bind the capsule list into the AEAD tag. The ciphertext remains authenticated, but capsule rewrapping by an existing group member is not prevented by the v1 wire format.
 - **View-tag oracle.** The 1-byte view tag leaks 8 bits per message about the candidate recipient set. An observer running every account's scalar against every view tag learns nothing more than they would by trial-decrypting -- but a targeted observer with a known scalar can quickly partition messages. Recipient unlinkability across messages is limited.
 - **Nonce reuse is catastrophic.** AEAD nonce reuse breaks ChaCha20-Poly1305 confidentiality. Senders MUST use a cryptographically secure RNG for the 12-byte nonce.
 
