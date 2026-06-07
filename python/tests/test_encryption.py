@@ -62,6 +62,27 @@ def test_encrypt_for_group_random_returns_nonce_needed_for_decrypt() -> None:
     assert decrypted == plaintext
 
 
+def test_decrypt_from_group_skips_colliding_view_tag_capsules() -> None:
+    sender = samp.Seed.from_bytes(bytes([0xAA] * 32))
+    alice = samp.Seed.from_bytes(bytes([0xAA] * 32))
+    bob = samp.Seed.from_bytes(bytes([0xBB] * 32))
+    nonce = samp.nonce_from_bytes(bytes([0xF1] * 12))
+    plaintext = samp.plaintext_from_bytes(b"view tag collision")
+    eph, capsules, ciphertext = samp.encrypt_for_group(
+        plaintext,
+        [samp.public_from_seed(alice), samp.public_from_seed(bob)],
+        nonce,
+        sender,
+    )
+
+    content = bytearray(bytes(eph) + bytes(capsules) + bytes(ciphertext))
+    content[32] = content[32 + samp.CAPSULE_SIZE]
+    scalar = samp.sr25519_signing_scalar(bob)
+
+    assert samp.decrypt_from_group(bytes(content), scalar, nonce, 2) == plaintext
+    assert samp.decrypt_from_group(bytes(content), scalar, nonce) == plaintext
+
+
 def test_derive_group_ephemeral_returns_bytes() -> None:
     seed = samp.Seed.from_bytes(bytes([0xAA] * 32))
     nonce = samp.nonce_from_bytes(bytes([0x01] * 12))

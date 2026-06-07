@@ -329,6 +329,12 @@ fn xor32(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     out
 }
 
+fn content_key_from_capsule(data: &[u8], offset: usize, kek: &[u8; 32]) -> [u8; 32] {
+    let mut wrapped = [0u8; 32];
+    wrapped.copy_from_slice(&data[offset + 1..offset + CAPSULE_SIZE]);
+    xor32(&wrapped, kek)
+}
+
 fn derive_view_tag(shared_secret: &[u8; 32]) -> u8 {
     let hk = Hkdf::<Sha256>::new(None, shared_secret);
     let mut tag = [0u8; 1];
@@ -449,9 +455,20 @@ fn encrypt_for_group(plaintext: &[u8], member_pubkeys: Vec<Vec<u8>>, nonce: &[u8
 }
 
 #[pyfunction]
-fn decrypt_from_group(content: &[u8], my_scalar: &[u8], nonce: &[u8], known_n: Option<usize>) -> PyResult<Vec<u8>> {
-    let ms = Scalar::from_bytes_mod_order(my_scalar.try_into().map_err(|_| err("my_scalar must be 32 bytes"))?);
-    let n: [u8; 12] = nonce.try_into().map_err(|_| err("nonce must be 12 bytes"))?;
+fn decrypt_from_group(
+    content: &[u8],
+    my_scalar: &[u8],
+    nonce: &[u8],
+    known_n: Option<usize>,
+) -> PyResult<Vec<u8>> {
+    let ms = Scalar::from_bytes_mod_order(
+        my_scalar
+            .try_into()
+            .map_err(|_| err("my_scalar must be 32 bytes"))?,
+    );
+    let n: [u8; 12] = nonce
+        .try_into()
+        .map_err(|_| err("nonce must be 12 bytes"))?;
     if content.len() < 32 {
         return Err(err("content too short"));
     }
@@ -464,37 +481,38 @@ fn decrypt_from_group(content: &[u8], my_scalar: &[u8], nonce: &[u8], known_n: O
 
     let mut offset = 0;
     let mut capsule_idx = 0;
-    let mut content_key: Option<[u8; 32]> = None;
     while offset + CAPSULE_SIZE <= after_eph.len() {
         if after_eph[offset] == my_tag {
-            let mut wrapped = [0u8; 32];
-            wrapped.copy_from_slice(&after_eph[offset + 1..offset + 33]);
-            content_key = Some(xor32(&wrapped, &kek));
-            break;
+            let ck = content_key_from_capsule(after_eph, offset, &kek);
+            let cipher = ChaCha20Poly1305::new((&ck).into());
+            if let Some(member_count) = known_n {
+                let ct_start = member_count
+                    .checked_mul(CAPSULE_SIZE)
+                    .ok_or_else(|| err("content too short"))?;
+                if ct_start > after_eph.len() {
+                    return Err(err("content too short"));
+                }
+                if let Ok(plaintext) = cipher.decrypt(Nonce::from_slice(&n), &after_eph[ct_start..])
+                {
+                    return Ok(plaintext);
+                }
+            } else {
+                let max_n = after_eph.len().saturating_sub(16) / CAPSULE_SIZE;
+                for trial_n in capsule_idx + 1..=max_n {
+                    let ct_start = trial_n * CAPSULE_SIZE;
+                    if ct_start >= after_eph.len() {
+                        break;
+                    }
+                    if let Ok(plaintext) =
+                        cipher.decrypt(Nonce::from_slice(&n), &after_eph[ct_start..])
+                    {
+                        return Ok(plaintext);
+                    }
+                }
+            }
         }
         offset += CAPSULE_SIZE;
         capsule_idx += 1;
-    }
-    let ck = content_key.ok_or_else(|| err("decryption failed"))?;
-    let cipher = ChaCha20Poly1305::new((&ck).into());
-
-    if let Some(member_count) = known_n {
-        let ct_start = member_count * CAPSULE_SIZE;
-        if ct_start > after_eph.len() {
-            return Err(err("content too short"));
-        }
-        return cipher.decrypt(Nonce::from_slice(&n), &after_eph[ct_start..])
-            .map_err(|_| err("decryption failed"));
-    }
-
-    let min_n = capsule_idx + 1;
-    let max_n = after_eph.len().saturating_sub(16) / CAPSULE_SIZE;
-    for trial_n in min_n..=max_n {
-        let ct_start = trial_n * CAPSULE_SIZE;
-        if ct_start >= after_eph.len() { break; }
-        if let Ok(plaintext) = cipher.decrypt(Nonce::from_slice(&n), &after_eph[ct_start..]) {
-            return Ok(plaintext);
-        }
     }
     Err(err("decryption failed"))
 }
