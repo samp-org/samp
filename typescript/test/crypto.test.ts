@@ -45,14 +45,21 @@ describe("encrypt/decrypt as sender", () => {
 });
 
 describe("random nonce helpers", () => {
-  it("returns distinct 12-byte nonces", () => {
-    const seen = new Set<string>();
-    for (let i = 0; i < 32; i++) {
-      const nonce = randomNonce();
-      expect(nonce.length).toBe(12);
-      seen.add(Buffer.from(nonce).toString("hex"));
+  it("reads twelve bytes from Web Crypto", () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues(values: Uint8Array): Uint8Array {
+        expect(values.length).toBe(12);
+        for (let i = 0; i < values.length; i++) {
+          values[i] = i;
+        }
+        return values;
+      },
+    });
+    try {
+      expect(randomNonce()).toEqual(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]));
+    } finally {
+      vi.unstubAllGlobals();
     }
-    expect(seen.size).toBe(32);
   });
 
   it("throws when Web Crypto is unavailable", () => {

@@ -18,10 +18,16 @@ def test_sr25519_sign_differs_for_different_messages() -> None:
     assert bytes(a) != bytes(b)
 
 
-def test_random_nonce_samples_are_well_formed_and_distinct() -> None:
-    nonces = {bytes(samp.random_nonce()) for _ in range(32)}
-    assert len(nonces) == 32
-    assert all(len(n) == 12 for n in nonces)
+def test_random_nonce_reads_twelve_bytes_from_os_random(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def deterministic_urandom(size: int) -> bytes:
+        assert size == 12
+        return bytes(range(12))
+
+    monkeypatch.setattr("os.urandom", deterministic_urandom)
+
+    assert bytes(samp.random_nonce()) == bytes(range(12))
 
 
 def test_random_nonce_reports_os_random_failure(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -30,6 +30,18 @@ func (r *nonceThenFailingReader) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
+type deterministicReader struct {
+	readLengths []int
+}
+
+func (r *deterministicReader) Read(p []byte) (int, error) {
+	r.readLengths = append(r.readLengths, len(p))
+	for i := range p {
+		p[i] = byte(i)
+	}
+	return len(p), nil
+}
+
 func withRandomReader(t *testing.T, reader io.Reader) {
 	t.Helper()
 	original := rand.Reader
@@ -55,15 +67,14 @@ func randomNonce(t *testing.T) Nonce {
 	return NonceFromBytes(b)
 }
 
-func TestRandomNonceSamplesAreWellFormedAndDistinct(t *testing.T) {
-	seen := make(map[[12]byte]bool)
-	for i := 0; i < 32; i++ {
-		nonce, err := RandomNonce()
-		require.NoError(t, err)
-		raw := nonce.Bytes()
-		require.False(t, seen[raw])
-		seen[raw] = true
-	}
+func TestRandomNonceReadsTwelveBytesFromRandomSource(t *testing.T) {
+	reader := &deterministicReader{}
+	withRandomReader(t, reader)
+
+	nonce, err := RandomNonce()
+	require.NoError(t, err)
+	require.Equal(t, [12]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, nonce.Bytes())
+	require.Equal(t, []int{12}, reader.readLengths)
 }
 
 func TestRandomNonceReturnsRngFailure(t *testing.T) {

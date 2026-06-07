@@ -1,6 +1,6 @@
 use samp::encryption::{
     compute_view_tag, decrypt, decrypt_as_sender, decrypt_from_group, encrypt, encrypt_for_group,
-    encrypt_for_group_random, encrypt_random, random_nonce, sr25519_signing_scalar,
+    encrypt_for_group_random, encrypt_random, sr25519_signing_scalar,
 };
 use samp::{
     decode_channel_content, decode_group_content, decode_group_members, decode_remark,
@@ -56,15 +56,6 @@ fn br(b: u32, i: u16) -> BlockRef {
 
 fn n(b: u8) -> Nonce {
     Nonce::from_bytes([b; 12])
-}
-
-#[test]
-fn random_nonce_samples_are_well_formed_and_distinct() {
-    let mut seen = std::collections::BTreeSet::new();
-    for _ in 0..32 {
-        let nonce = random_nonce().unwrap();
-        assert!(seen.insert(nonce.into_bytes()));
-    }
 }
 
 #[test]

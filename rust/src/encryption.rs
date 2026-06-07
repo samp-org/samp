@@ -25,8 +25,14 @@ const KEY_WRAP_INFO: &[u8] = b"samp-key-wrap";
 pub const ENCRYPTED_OVERHEAD: usize = 80;
 
 pub fn random_nonce() -> Result<Nonce, SampError> {
+    random_nonce_with(getrandom::fill)
+}
+
+fn random_nonce_with(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+) -> Result<Nonce, SampError> {
     let mut bytes = [0u8; 12];
-    getrandom::fill(&mut bytes).map_err(SampError::RandomUnavailable)?;
+    fill(&mut bytes).map_err(SampError::RandomUnavailable)?;
     Ok(Nonce::from_bytes(bytes))
 }
 
@@ -430,4 +436,29 @@ pub fn decrypt_from_group(
         }
     }
     Err(SampError::DecryptionFailed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_nonce_with_reads_exactly_twelve_bytes() {
+        let nonce = random_nonce_with(|bytes| {
+            assert_eq!(bytes.len(), 12);
+            for (i, byte) in bytes.iter_mut().enumerate() {
+                *byte = i as u8;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(nonce.into_bytes(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    }
+
+    #[test]
+    fn random_nonce_with_returns_source_failure() {
+        let err = random_nonce_with(|_| Err(getrandom::Error::UNSUPPORTED)).unwrap_err();
+        assert!(matches!(err, SampError::RandomUnavailable(_)));
+    }
 }
