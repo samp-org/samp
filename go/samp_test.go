@@ -24,6 +24,30 @@ func TestDecodeChannelCreateDescTooLongByte(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidChannelDesc)
 }
 
+func TestDecodeChannelCreateInvalidUTF8Name(t *testing.T) {
+	data := []byte{0x13, 0x02, 0xff, 0xfe, 0x00}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInvalidChannelName)
+}
+
+func TestDecodeChannelCreateInvalidUTF8Description(t *testing.T) {
+	data := []byte{0x13, 0x01, 0x41, 0x02, 0xff, 0xfe}
+	_, err := DecodeRemark(RemarkBytesFromBytes(data))
+	require.ErrorIs(t, err, ErrInvalidChannelDesc)
+}
+
+func TestChannelTextConstructorsRejectInvalidUTF8(t *testing.T) {
+	_, err := ChannelNameParse(string([]byte{0xff}))
+	require.ErrorIs(t, err, ErrInvalidChannelName)
+	_, err = ChannelNameFromBytes([]byte{0xff})
+	require.ErrorIs(t, err, ErrInvalidChannelName)
+
+	_, err = ChannelDescriptionParse(string([]byte{0xfe}))
+	require.ErrorIs(t, err, ErrInvalidChannelDesc)
+	_, err = ChannelDescriptionFromBytes([]byte{0xfe})
+	require.ErrorIs(t, err, ErrInvalidChannelDesc)
+}
+
 func TestEncodeGroupRemarkLayout(t *testing.T) {
 	nonce := NonceFromBytes([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
 	ephPub := EphPubkeyFromBytes([32]byte{0xAA})

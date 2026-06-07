@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 var (
@@ -175,10 +176,16 @@ func (c CallArgs) Len() int               { return len(c.b) }
 type ChannelName struct{ s string }
 
 func ChannelNameParse(s string) (ChannelName, error) {
-	if len(s) == 0 || len(s) > ChannelNameMax {
+	if len(s) == 0 || len(s) > ChannelNameMax || !utf8.ValidString(s) {
 		return ChannelName{}, ErrInvalidChannelName
 	}
 	return ChannelName{s}, nil
+}
+func ChannelNameFromBytes(b []byte) (ChannelName, error) {
+	if len(b) == 0 || len(b) > ChannelNameMax || !utf8.Valid(b) {
+		return ChannelName{}, ErrInvalidChannelName
+	}
+	return ChannelName{string(b)}, nil
 }
 func (c ChannelName) String() string { return c.s }
 func (c ChannelName) Len() int       { return len(c.s) }
@@ -186,10 +193,16 @@ func (c ChannelName) Len() int       { return len(c.s) }
 type ChannelDescription struct{ s string }
 
 func ChannelDescriptionParse(s string) (ChannelDescription, error) {
-	if len(s) > ChannelDescMax {
+	if len(s) > ChannelDescMax || !utf8.ValidString(s) {
 		return ChannelDescription{}, ErrInvalidChannelDesc
 	}
 	return ChannelDescription{s}, nil
+}
+func ChannelDescriptionFromBytes(b []byte) (ChannelDescription, error) {
+	if len(b) > ChannelDescMax || !utf8.Valid(b) {
+		return ChannelDescription{}, ErrInvalidChannelDesc
+	}
+	return ChannelDescription{string(b)}, nil
 }
 func (c ChannelDescription) String() string { return c.s }
 func (c ChannelDescription) Len() int       { return len(c.s) }
