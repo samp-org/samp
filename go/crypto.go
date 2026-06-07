@@ -363,10 +363,7 @@ func DecryptFromGroup(content []byte, myScalar ViewScalar, nonce Nonce, knownN i
 		if afterEph[offset] == myTag {
 			contentKey := contentKeyFromCapsule(afterEph, offset, kek)
 			ckRaw := contentKey.b
-			aead, err := chacha20poly1305.New(ckRaw[:])
-			if err != nil {
-				return Plaintext{}, err
-			}
+			aead, _ := chacha20poly1305.New(ckRaw[:])
 			if knownN > 0 {
 				ctStart := knownN * CapsuleSize
 				if ctStart > len(afterEph) {
@@ -379,9 +376,6 @@ func DecryptFromGroup(content []byte, myScalar ViewScalar, nonce Nonce, knownN i
 				maxN := (len(afterEph) - 16) / CapsuleSize
 				for n := capsuleIdx + 1; n <= maxN; n++ {
 					ctStart := n * CapsuleSize
-					if ctStart >= len(afterEph) {
-						break
-					}
 					if pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil); err == nil {
 						return Plaintext{pt}, nil
 					}
