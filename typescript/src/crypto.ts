@@ -232,27 +232,19 @@ export function buildCapsules(
   return Capsules.fromBytes(out);
 }
 
-function scanCapsules(
-  data: Uint8Array,
-  ephPubkey: EphPubkey,
-  myScalar: ViewScalar,
-  nonce: Nonce,
-): { index: number; contentKey: ContentKey } | null {
-  const shared = ecdhSharedSecret(viewScalarToBigInt(myScalar), ephPubkey);
-  const myTag = deriveViewTagByte(shared);
-  const kek = deriveKeyWrap(shared, nonce);
-  let offset = 0;
-  let idx = 0;
-  while (offset + CAPSULE_SIZE <= data.length) {
-    if (data[offset] === myTag) {
-      const out = new Uint8Array(32);
-      for (let j = 0; j < 32; j++) out[j] = data[offset + 1 + j]! ^ kek[j]!;
-      return { index: idx, contentKey: ContentKey.fromBytes(out) };
-    }
-    offset += CAPSULE_SIZE;
-    idx++;
+function contentKeyFromCapsule(data: Uint8Array, offset: number, kek: Uint8Array): ContentKey {
+  const out = new Uint8Array(32);
+  for (let j = 0; j < 32; j++) out[j] = data[offset + 1 + j]! ^ kek[j]!;
+  return ContentKey.fromBytes(out);
+}
+
+function tryDecryptGroup(contentKey: ContentKey, nonce: Nonce, data: Uint8Array): Plaintext | null {
+  const cipher = chacha20poly1305(ContentKey.exposeSecret(contentKey), Nonce.chachaBytes(nonce));
+  try {
+    return Plaintext.fromBytes(cipher.decrypt(data));
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export function encryptForGroup(
@@ -290,30 +282,33 @@ export function decryptFromGroup(
   if (content.length < 32) throw new SampError("insufficient data");
   const ephPubkey = EphPubkey.fromBytes(content.slice(0, 32));
   const afterEph = content.slice(32);
-  const scan = scanCapsules(afterEph, ephPubkey, myScalar, nonce);
-  if (scan === null) throw new SampError("decryption failed");
-  const ckRaw = ContentKey.exposeSecret(scan.contentKey);
-  const cipher = chacha20poly1305(ckRaw, Nonce.chachaBytes(nonce));
-  if (knownN !== undefined) {
-    const ctStart = knownN * CAPSULE_SIZE;
-    if (ctStart > afterEph.length) throw new SampError("insufficient data");
-    try {
-      return Plaintext.fromBytes(cipher.decrypt(afterEph.slice(ctStart)));
-    } catch {
-      throw new SampError("decryption failed");
+
+  const shared = ecdhSharedSecret(viewScalarToBigInt(myScalar), ephPubkey);
+  const myTag = deriveViewTagByte(shared);
+  const kek = deriveKeyWrap(shared, nonce);
+  let offset = 0;
+  let capsuleIdx = 0;
+  while (offset + CAPSULE_SIZE <= afterEph.length) {
+    if (afterEph[offset] === myTag) {
+      const contentKey = contentKeyFromCapsule(afterEph, offset, kek);
+      if (knownN !== undefined) {
+        const ctStart = knownN * CAPSULE_SIZE;
+        if (!Number.isSafeInteger(ctStart) || ctStart > afterEph.length) {
+          throw new SampError("insufficient data");
+        }
+        const plaintext = tryDecryptGroup(contentKey, nonce, afterEph.slice(ctStart));
+        if (plaintext !== null) return plaintext;
+      } else {
+        const maxN = Math.floor((afterEph.length - 16) / CAPSULE_SIZE);
+        for (let n = capsuleIdx + 1; n <= maxN; n++) {
+          const ctStart = n * CAPSULE_SIZE;
+          const plaintext = tryDecryptGroup(contentKey, nonce, afterEph.slice(ctStart));
+          if (plaintext !== null) return plaintext;
+        }
+      }
     }
-  }
-  const minN = scan.index + 1;
-  const maxN = Math.floor((afterEph.length - 16) / CAPSULE_SIZE);
-  for (let n = minN; n <= maxN; n++) {
-    const ctStart = n * CAPSULE_SIZE;
-    if (ctStart >= afterEph.length) break;
-    const c = chacha20poly1305(ckRaw, Nonce.chachaBytes(nonce));
-    try {
-      return Plaintext.fromBytes(c.decrypt(afterEph.slice(ctStart)));
-    } catch {
-      continue;
-    }
+    offset += CAPSULE_SIZE;
+    capsuleIdx++;
   }
   throw new SampError("decryption failed");
 }

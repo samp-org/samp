@@ -7,6 +7,7 @@ use samp::{
     decode_thread_content, encode_channel_content, encode_channel_msg, encode_encrypted,
     encode_group, encode_group_members, encode_public, encode_thread_content, BlockRef,
     ChannelDescription, ChannelName, ContentType, Nonce, Plaintext, Pubkey, Remark, Seed,
+    CAPSULE_SIZE,
 };
 
 use schnorrkel::keys::{ExpansionMode, MiniSecretKey};
@@ -325,6 +326,34 @@ fn group_trial_aead_without_known_n() {
     let (group_ref, _, _, body) = decode_group_content(decrypted.as_bytes()).unwrap();
     assert_eq!(group_ref, br(500, 2));
     assert_eq!(body, b"trial aead test");
+}
+
+#[test]
+fn group_decrypt_skips_colliding_view_tag_capsules() {
+    let alice_pk = pubkey_from_seed(&alice_seed());
+    let bob_pk = pubkey_from_seed(&bob_seed());
+    let members = vec![alice_pk, bob_pk];
+
+    let nonce = n(0xF1);
+    let plaintext = pt(b"view tag collision");
+    let (eph_pubkey, capsules, ciphertext) =
+        encrypt_for_group(&plaintext, &members, &nonce, &alice_seed()).unwrap();
+
+    let mut content = Vec::new();
+    content.extend_from_slice(eph_pubkey.as_bytes());
+    content.extend_from_slice(capsules.as_bytes());
+    content.extend_from_slice(ciphertext.as_bytes());
+    content[32] = content[32 + CAPSULE_SIZE];
+
+    let bob_scalar = sr25519_signing_scalar(&bob_seed());
+    assert_eq!(
+        decrypt_from_group(&content, &nonce, &bob_scalar, Some(2)).unwrap(),
+        plaintext
+    );
+    assert_eq!(
+        decrypt_from_group(&content, &nonce, &bob_scalar, None).unwrap(),
+        plaintext
+    );
 }
 
 // 1:1 encryption edge cases

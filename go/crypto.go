@@ -296,29 +296,12 @@ func buildCapsules(contentKey ContentKey, members []Pubkey, ephScalar *ristretto
 	return Capsules{out}
 }
 
-func scanCapsules(data []byte, ephPubkey EphPubkey, myScalar ViewScalar, nonce Nonce) (int, ContentKey, bool) {
-	epb := ephPubkey.b
-	shared, err := ecdhSharedSecret(viewScalarToRistretto(myScalar), epb[:])
-	if err != nil {
-		return 0, ContentKey{}, false
+func contentKeyFromCapsule(data []byte, offset int, kek []byte) ContentKey {
+	var ck [32]byte
+	for i := 0; i < 32; i++ {
+		ck[i] = data[offset+1+i] ^ kek[i]
 	}
-	myTag := deriveViewTagByte(shared)
-	kek := deriveKeyWrap(shared, nonce)
-
-	offset := 0
-	idx := 0
-	for offset+CapsuleSize <= len(data) {
-		if data[offset] == myTag {
-			var ck [32]byte
-			for i := 0; i < 32; i++ {
-				ck[i] = data[offset+1+i] ^ kek[i]
-			}
-			return idx, ContentKey{ck}, true
-		}
-		offset += CapsuleSize
-		idx++
-	}
-	return 0, ContentKey{}, false
+	return ContentKey{ck}
 }
 
 func EncryptForGroup(plaintext Plaintext, members []Pubkey, nonce Nonce, senderSeed Seed) (EphPubkey, Capsules, Ciphertext, error) {
@@ -366,40 +349,41 @@ func DecryptFromGroup(content []byte, myScalar ViewScalar, nonce Nonce, knownN i
 	ephPubkey := EphPubkey{ephArr}
 	afterEph := content[32:]
 
-	capsuleIdx, contentKey, found := scanCapsules(afterEph, ephPubkey, myScalar, nonce)
-	if !found {
+	epb := ephPubkey.b
+	shared, err := ecdhSharedSecret(viewScalarToRistretto(myScalar), epb[:])
+	if err != nil {
 		return Plaintext{}, ErrDecryptionFailed
 	}
-	ckRaw := contentKey.b
+	myTag := deriveViewTagByte(shared)
+	kek := deriveKeyWrap(shared, nonce)
 
-	aead, err := chacha20poly1305.New(ckRaw[:])
-	if err != nil {
-		return Plaintext{}, err
-	}
-
-	if knownN > 0 {
-		ctStart := knownN * CapsuleSize
-		if ctStart > len(afterEph) {
-			return Plaintext{}, ErrInsufficientData
+	offset := 0
+	capsuleIdx := 0
+	for offset+CapsuleSize <= len(afterEph) {
+		if afterEph[offset] == myTag {
+			contentKey := contentKeyFromCapsule(afterEph, offset, kek)
+			ckRaw := contentKey.b
+			aead, _ := chacha20poly1305.New(ckRaw[:])
+			if knownN > 0 {
+				ctStart := knownN * CapsuleSize
+				if ctStart > len(afterEph) {
+					return Plaintext{}, ErrInsufficientData
+				}
+				if pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil); err == nil {
+					return Plaintext{pt}, nil
+				}
+			} else {
+				maxN := (len(afterEph) - 16) / CapsuleSize
+				for n := capsuleIdx + 1; n <= maxN; n++ {
+					ctStart := n * CapsuleSize
+					if pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil); err == nil {
+						return Plaintext{pt}, nil
+					}
+				}
+			}
 		}
-		pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil)
-		if err != nil {
-			return Plaintext{}, ErrDecryptionFailed
-		}
-		return Plaintext{pt}, nil
-	}
-
-	minN := capsuleIdx + 1
-	maxN := (len(afterEph) - 16) / CapsuleSize
-	for n := minN; n <= maxN; n++ {
-		ctStart := n * CapsuleSize
-		if ctStart >= len(afterEph) {
-			break
-		}
-		pt, err := aead.Open(nil, nonce.chachaNonce(), afterEph[ctStart:], nil)
-		if err == nil {
-			return Plaintext{pt}, nil
-		}
+		offset += CapsuleSize
+		capsuleIdx++
 	}
 	return Plaintext{}, ErrDecryptionFailed
 }
