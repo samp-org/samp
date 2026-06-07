@@ -1,15 +1,11 @@
-# samp
+# samp-core
 
 Python implementation of [SAMP](https://github.com/samp-org/samp) (Substrate Account Messaging Protocol). Crypto operations use a native Rust extension via PyO3.
 
 ## Install
 
-Requires a Rust toolchain for the native crypto extension.
-
 ```
-pip install maturin
-cd python/samp-crypto && maturin develop && cd ../..
-cd python && pip install -e .
+pip install samp-core
 ```
 
 ## Usage
