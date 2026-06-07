@@ -1,6 +1,6 @@
 [package]
 name = "samp-core"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "Substrate Account Messaging Protocol — reference implementation"
 license = "MIT"
@@ -17,7 +17,7 @@ curve25519-dalek = { version = "4", features = ["digest"] }
 hkdf = "0.12"
 sha2 = "0.10"
 chacha20poly1305 = "0.10"
-getrandom = "0.3"
+getrandom = { version = "0.3", features = ["std"] }
 hex = "0.4"
 zeroize = "1"
 parity-scale-codec = "3"
