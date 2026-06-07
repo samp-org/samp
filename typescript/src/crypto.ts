@@ -302,7 +302,6 @@ export function decryptFromGroup(
         const maxN = Math.floor((afterEph.length - 16) / CAPSULE_SIZE);
         for (let n = capsuleIdx + 1; n <= maxN; n++) {
           const ctStart = n * CAPSULE_SIZE;
-          if (ctStart >= afterEph.length) break;
           const plaintext = tryDecryptGroup(contentKey, nonce, afterEph.slice(ctStart));
           if (plaintext !== null) return plaintext;
         }
