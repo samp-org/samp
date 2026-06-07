@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  CAPSULE_SIZE,
   Nonce,
   Plaintext,
   SampError,
@@ -129,6 +130,35 @@ describe("group encrypt single member", () => {
 
     const recovered = decryptFromGroup(content, recipientScalar, NONCE, 1);
     expect(new TextDecoder().decode(recovered)).toBe("group msg");
+  });
+});
+
+describe("decryptFromGroup view tag collision", () => {
+  it("continues until a matching capsule authenticates", () => {
+    const senderPub = publicFromSeed(SENDER_SEED);
+    const recipientPub = publicFromSeed(RECIPIENT_SEED);
+    const recipientScalar = sr25519SigningScalar(RECIPIENT_SEED);
+    const pt = Plaintext.fromBytes(new TextEncoder().encode("view tag collision"));
+
+    const { ephPubkey, capsules, ciphertext } = encryptForGroup(
+      pt,
+      [senderPub, recipientPub],
+      NONCE,
+      SENDER_SEED,
+    );
+
+    const content = new Uint8Array(ephPubkey.length + capsules.length + ciphertext.length);
+    content.set(ephPubkey, 0);
+    content.set(capsules, ephPubkey.length);
+    content.set(ciphertext, ephPubkey.length + capsules.length);
+    content[32] = content[32 + CAPSULE_SIZE]!;
+
+    expect(new TextDecoder().decode(decryptFromGroup(content, recipientScalar, NONCE, 2))).toBe(
+      "view tag collision",
+    );
+    expect(new TextDecoder().decode(decryptFromGroup(content, recipientScalar, NONCE))).toBe(
+      "view tag collision",
+    );
   });
 });
 
