@@ -9,9 +9,8 @@ _ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
 def encode(pubkey: Pubkey, prefix: Ss58Prefix) -> Ss58Address:
-    prefix_byte = int(prefix)
     payload = bytearray()
-    payload.append(prefix_byte)
+    payload.extend(_encode_prefix(int(prefix)))
     payload.extend(pubkey)
     h = hashlib.blake2b(b"SS58PRE" + bytes(payload), digest_size=64).digest()
     payload.extend(h[:2])
@@ -24,15 +23,43 @@ def decode(address: str) -> Ss58Address:
         raise SampError("ss58 invalid base58")
     if len(decoded) < 35:
         raise SampError("ss58 too short")
-    if decoded[0] >= 64:
-        raise SampError(f"ss58 prefix unsupported: {decoded[0]}")
-    payload = decoded[:33]
-    checksum = decoded[33:35]
+    prefix_value, prefix_len = _decode_prefix(decoded)
+    pubkey_end = prefix_len + 32
+    if len(decoded) < pubkey_end + 2:
+        raise SampError("ss58 too short")
+    if len(decoded) != pubkey_end + 2:
+        raise SampError("ss58 bad checksum")
+    payload = decoded[:pubkey_end]
+    checksum = decoded[pubkey_end : pubkey_end + 2]
     h = hashlib.blake2b(b"SS58PRE" + payload, digest_size=64).digest()
     if h[:2] != checksum:
         raise SampError("ss58 bad checksum")
-    prefix = ss58_prefix_from_int(decoded[0])
-    return Ss58Address.from_parts(address, pubkey_from_bytes(decoded[1:33]), prefix)
+    prefix = ss58_prefix_from_int(prefix_value)
+    return Ss58Address.from_parts(address, pubkey_from_bytes(decoded[prefix_len:pubkey_end]), prefix)
+
+
+def _encode_prefix(prefix: int) -> bytes:
+    if prefix < 64:
+        return bytes([prefix])
+    return bytes(
+        [
+            ((prefix & 0b0000_0000_1111_1100) >> 2) | 0b0100_0000,
+            (prefix >> 8) | ((prefix & 0b0000_0000_0000_0011) << 6),
+        ]
+    )
+
+
+def _decode_prefix(decoded: bytes) -> tuple[int, int]:
+    first = decoded[0]
+    if first & 0b1000_0000 != 0:
+        raise SampError(f"ss58 prefix unsupported: {first}")
+    if first & 0b0100_0000 == 0:
+        return first, 1
+    if len(decoded) < 2:
+        raise SampError("ss58 too short")
+    second = decoded[1]
+    prefix = ((first & 0b0011_1111) << 2) | (second >> 6) | ((second & 0b0011_1111) << 8)
+    return prefix, 2
 
 
 def _bs58_decode(s: str) -> bytes | None:

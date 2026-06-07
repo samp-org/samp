@@ -489,7 +489,7 @@ impl Ss58Prefix {
     pub const KUSAMA: Self = Self(2);
 
     pub fn new(value: u16) -> Result<Self, SampError> {
-        if value > 63 {
+        if value > 16_383 {
             return Err(SampError::Ss58PrefixUnsupported(value));
         }
         Ok(Self(value))

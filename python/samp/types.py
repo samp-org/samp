@@ -151,7 +151,7 @@ SS58_PREFIX_KUSAMA = 2
 
 
 def ss58_prefix_from_int(n: int) -> Ss58Prefix:
-    if not 0 <= n <= 63:
+    if not 0 <= n <= 16_383:
         raise SampError(f"ss58 prefix unsupported: {n}")
     return Ss58Prefix(n)
 

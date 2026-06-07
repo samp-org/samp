@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { blake2b } from "@noble/hashes/blake2b";
 import { Ss58Address, Ss58Prefix, Pubkey } from "../src/index.js";
 
 const testPubkey = Pubkey.fromBytes(
@@ -8,6 +11,52 @@ const testPubkey = Pubkey.fromBytes(
     0x9a, 0x56, 0x84, 0xe7, 0xa5, 0x6d, 0xa2, 0x7d,
   ]),
 );
+const vectors = JSON.parse(
+  readFileSync(resolve(__dirname, "../../e2e/test-vectors.json"), "utf-8"),
+);
+
+function h(s: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(s.replace(/^0x/, ""), "hex"));
+}
+
+function bs58Encode(data: Uint8Array): string {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits: number[] = [0];
+  for (const b of data) {
+    let carry = b;
+    for (let i = 0; i < digits.length; i++) {
+      carry += (digits[i] ?? 0) * 256;
+      digits[i] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  let encoded = "";
+  for (const b of data) {
+    if (b === 0) encoded += alphabet[0];
+    else break;
+  }
+  for (let i = digits.length - 1; i >= 0; i--) {
+    encoded += alphabet[digits[i] ?? 0];
+  }
+  return encoded;
+}
+
+function ss58AddressFromPayload(payload: Uint8Array): string {
+  const ss58pre = new TextEncoder().encode("SS58PRE");
+  const hasher = blake2b.create({ dkLen: 64 });
+  hasher.update(ss58pre);
+  hasher.update(payload);
+  const sum = hasher.digest();
+  const full = new Uint8Array(payload.length + 2);
+  full.set(payload, 0);
+  full[payload.length] = sum[0]!;
+  full[payload.length + 1] = sum[1]!;
+  return bs58Encode(full);
+}
 
 describe("ss58", () => {
   it("encode + decode round trip (prefix 42)", () => {
@@ -43,56 +92,52 @@ describe("ss58", () => {
     expect(() => Ss58Address.parse("")).toThrow("ss58 too short");
   });
 
-  it("prefix boundary: 63 valid, 64 rejected", () => {
+  it("prefix boundary: 63 and 64 valid, 16384 rejected", () => {
     const prefix63 = Ss58Prefix.from(63);
     const addr63 = Ss58Address.encode(testPubkey, prefix63);
     const parsed = Ss58Address.parse(addr63.asString());
     expect(Ss58Prefix.get(parsed.prefix())).toBe(63);
 
-    expect(() => Ss58Prefix.from(64)).toThrow();
+    const prefix64 = Ss58Prefix.from(64);
+    const addr64 = Ss58Address.encode(testPubkey, prefix64);
+    const parsed64 = Ss58Address.parse(addr64.asString());
+    expect(Ss58Prefix.get(parsed64.prefix())).toBe(64);
+
+    expect(Ss58Prefix.get(Ss58Prefix.from(16_383))).toBe(16_383);
+    expect(() => Ss58Prefix.from(16_384)).toThrow();
   });
 
-  it("parse rejects address with prefix byte >= 64", () => {
-    // Manually construct a base58-encoded address with prefix byte 64
-    // by encoding raw bytes [64, ...pubkey, checksum]
-    // The parse function should reject prefix byte >= 64
-    const { blake2b } = require("@noble/hashes/blake2b");
+  it("matches shared boundary prefix vectors", () => {
+    const pk = Pubkey.fromBytes(h(vectors.ss58.pubkey));
+    for (const c of vectors.ss58.cases as Array<{ prefix: number; address: string }>) {
+      const prefix = Ss58Prefix.from(c.prefix);
+      const addr = Ss58Address.encode(pk, prefix);
+      expect(addr.asString()).toBe(c.address);
+      const parsed = Ss58Address.parse(c.address);
+      expect(Buffer.from(parsed.pubkey())).toEqual(Buffer.from(pk));
+      expect(Ss58Prefix.get(parsed.prefix())).toBe(c.prefix);
+    }
+  });
+
+  it("parse rejects reserved high-bit prefix marker", () => {
     const payload = new Uint8Array(33);
-    payload[0] = 64;
+    payload[0] = 128;
     payload.set(testPubkey, 1);
-    const SS58PRE = new TextEncoder().encode("SS58PRE");
-    const h = blake2b.create({ dkLen: 64 });
-    h.update(SS58PRE);
-    h.update(payload);
-    const sum = h.digest();
-    const full = new Uint8Array(35);
-    full.set(payload, 0);
-    full[33] = sum[0];
-    full[34] = sum[1];
-    // bs58 encode
-    const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-    const digits: number[] = [0];
-    for (const b of full) {
-      let carry = b;
-      for (let i = 0; i < digits.length; i++) {
-        carry += (digits[i] ?? 0) * 256;
-        digits[i] = carry % 58;
-        carry = Math.floor(carry / 58);
-      }
-      while (carry > 0) {
-        digits.push(carry % 58);
-        carry = Math.floor(carry / 58);
-      }
-    }
-    let encoded = "";
-    for (const b of full) {
-      if (b === 0) encoded += ALPHABET[0];
-      else break;
-    }
-    for (let i = digits.length - 1; i >= 0; i--) {
-      encoded += ALPHABET[digits[i] ?? 0];
-    }
-    expect(() => Ss58Address.parse(encoded)).toThrow("ss58 prefix unsupported");
+    expect(() => Ss58Address.parse(ss58AddressFromPayload(payload))).toThrow(
+      "ss58 prefix unsupported",
+    );
+  });
+
+  it("parse rejects two-byte prefix payloads missing a checksum byte", () => {
+    const raw = new Uint8Array(35);
+    raw[0] = 0b0100_0000;
+    expect(() => Ss58Address.parse(bs58Encode(raw))).toThrow("ss58 too short");
+  });
+
+  it("parse rejects extra payload bytes", () => {
+    const raw = new Uint8Array(36);
+    raw[0] = 42;
+    expect(() => Ss58Address.parse(bs58Encode(raw))).toThrow("ss58 bad checksum");
   });
 
   it("decode invalid base58 character throws", () => {

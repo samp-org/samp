@@ -96,6 +96,16 @@ type negativeCases struct {
 	TruncatedEncrypted string `json:"truncated_encrypted"`
 }
 
+type ss58CaseVec struct {
+	Prefix  uint16 `json:"prefix"`
+	Address string `json:"address"`
+}
+
+type ss58Vec struct {
+	Pubkey string        `json:"pubkey"`
+	Cases  []ss58CaseVec `json:"cases"`
+}
+
 type testVectors struct {
 	Alice             keypairVec       `json:"alice"`
 	Bob               keypairVec       `json:"bob"`
@@ -109,6 +119,7 @@ type testVectors struct {
 	GroupMessage      groupMsgVec      `json:"group_message"`
 	EdgeCases         edgeCases        `json:"edge_cases"`
 	NegativeCases     negativeCases    `json:"negative_cases"`
+	Ss58              ss58Vec          `json:"ss58"`
 }
 
 func h(s string) []byte {
@@ -934,6 +945,21 @@ func TestTypeStringMethods(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "desc", cd.String())
 	require.Equal(t, 4, cd.Len())
+}
+
+func TestConformanceSs58BoundaryPrefixes(t *testing.T) {
+	v := loadVectors(t)
+	pk := pkFromHex(v.Ss58.Pubkey)
+	for _, c := range v.Ss58.Cases {
+		prefix, err := Ss58PrefixNew(c.Prefix)
+		require.NoError(t, err)
+		addr := Ss58AddressEncode(pk, prefix)
+		require.Equal(t, c.Address, addr.String())
+		parsed, err := Ss58AddressParse(c.Address)
+		require.NoError(t, err)
+		require.Equal(t, pk, parsed.Pubkey())
+		require.Equal(t, prefix, parsed.Prefix())
+	}
 }
 
 // --- Coverage: secret.go ---
@@ -1792,9 +1818,9 @@ func TestReadTypeDefVariantWithFields(t *testing.T) {
 	//   name="Foo" (compact 3 + "Foo"), 0 fields, index=0, 1 doc string "test doc"
 	fooName := append([]byte{0x0C}, []byte("Foo")...)
 	docStr := append([]byte{0x20}, []byte("test doc")...)
-	variant := append(fooName, 0x00)   // 0 fields
-	variant = append(variant, 0x00)    // index=0
-	variant = append(variant, 0x04)    // 1 doc
+	variant := append(fooName, 0x00) // 0 fields
+	variant = append(variant, 0x00)  // index=0
+	variant = append(variant, 0x04)  // 1 doc
 	variant = append(variant, docStr...)
 
 	data := append([]byte{0x01, 0x04}, variant...)
@@ -1847,11 +1873,11 @@ func TestReadRegistryNonSequentialId(t *testing.T) {
 func TestReadFieldsWithNamedField(t *testing.T) {
 	// 1 field: Option(Some) for name="foo", compact type_id=0, Option(None) for typeName, 0 docs
 	data := []byte{
-		0x04,                   // compact 1
+		0x04,                      // compact 1
 		0x01, 0x0C, 'f', 'o', 'o', // Option(Some, "foo")
-		0x00,       // compact 0 (type_id)
-		0x00,       // Option(None) for typeName
-		0x00,       // compact 0 (docs)
+		0x00, // compact 0 (type_id)
+		0x00, // Option(None) for typeName
+		0x00, // compact 0 (docs)
 	}
 	r := &reader{data: data, pos: 0}
 	fields, err := readFields(r)

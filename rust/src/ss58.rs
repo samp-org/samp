@@ -4,9 +4,9 @@ use crate::error::SampError;
 use crate::types::{Pubkey, Ss58Address, Ss58Prefix};
 
 pub fn encode(pubkey: &Pubkey, prefix: Ss58Prefix) -> Ss58Address {
-    let prefix_byte = u8::try_from(prefix.get()).expect("validated < 64 by Ss58Prefix::new");
-    let mut payload = Vec::with_capacity(35);
-    payload.push(prefix_byte);
+    let prefix_bytes = encode_prefix(prefix);
+    let mut payload = Vec::with_capacity(prefix_bytes.len() + 34);
+    payload.extend_from_slice(&prefix_bytes);
     payload.extend_from_slice(pubkey.as_bytes());
     let mut hasher = blake2::Blake2b512::new();
     hasher.update(b"SS58PRE");
@@ -22,13 +22,13 @@ pub fn decode(address: &str) -> Result<Ss58Address, SampError> {
     if decoded.len() < 35 {
         return Err(SampError::Ss58TooShort);
     }
-    if decoded[0] >= 64 {
-        return Err(SampError::Ss58PrefixUnsupported(u16::from(decoded[0])));
-    }
-    let prefix_len = 1;
+    let (prefix_value, prefix_len) = decode_prefix(&decoded)?;
     let pubkey_end = prefix_len + 32;
     if decoded.len() < pubkey_end + 2 {
         return Err(SampError::Ss58TooShort);
+    }
+    if decoded.len() != pubkey_end + 2 {
+        return Err(SampError::Ss58BadChecksum);
     }
     let payload = &decoded[..pubkey_end];
     let expected_checksum = &decoded[pubkey_end..pubkey_end + 2];
@@ -41,12 +41,41 @@ pub fn decode(address: &str) -> Result<Ss58Address, SampError> {
     }
     let mut pk = [0u8; 32];
     pk.copy_from_slice(&decoded[prefix_len..pubkey_end]);
-    let prefix = Ss58Prefix::new(u16::from(decoded[0]))?;
+    let prefix = Ss58Prefix::new(prefix_value)?;
     Ok(Ss58Address::from_parts(
         address.to_string(),
         Pubkey::from_bytes(pk),
         prefix,
     ))
+}
+
+fn encode_prefix(prefix: Ss58Prefix) -> Vec<u8> {
+    let value = prefix.get();
+    if value < 64 {
+        return vec![value as u8];
+    }
+    vec![
+        (((value & 0b0000_0000_1111_1100) >> 2) as u8) | 0b0100_0000,
+        ((value >> 8) as u8) | (((value & 0b0000_0000_0000_0011) as u8) << 6),
+    ]
+}
+
+fn decode_prefix(decoded: &[u8]) -> Result<(u16, usize), SampError> {
+    let first = decoded[0];
+    if first & 0b1000_0000 != 0 {
+        return Err(SampError::Ss58PrefixUnsupported(u16::from(first)));
+    }
+    if first & 0b0100_0000 == 0 {
+        return Ok((u16::from(first), 1));
+    }
+    if decoded.len() < 2 {
+        return Err(SampError::Ss58TooShort);
+    }
+    let second = decoded[1];
+    let value = (u16::from(first & 0b0011_1111) << 2)
+        | (u16::from(second >> 6))
+        | (u16::from(second & 0b0011_1111) << 8);
+    Ok((value, 2))
 }
 
 fn bs58_decode(input: &str) -> Result<Vec<u8>, ()> {
@@ -107,4 +136,33 @@ fn bs58_encode(data: &[u8]) -> String {
         result.push(char::from(ALPHABET[d as usize]));
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_prefix_rejects_truncated_two_byte_prefix() {
+        assert!(matches!(
+            decode_prefix(&[0b0100_0000]),
+            Err(SampError::Ss58TooShort)
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_extra_payload_bytes() {
+        let mut raw = vec![42u8];
+        raw.extend_from_slice(&[1u8; 35]);
+
+        assert!(matches!(
+            decode(&bs58_encode(&raw)),
+            Err(SampError::Ss58BadChecksum)
+        ));
+    }
+
+    #[test]
+    fn bs58_encode_empty_is_empty() {
+        assert_eq!(bs58_encode(&[]), "");
+    }
 }

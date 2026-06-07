@@ -254,10 +254,12 @@ describe("Ss58Prefix", () => {
   it("valid range works", () => {
     expect(Ss58Prefix.get(Ss58Prefix.from(0))).toBe(0);
     expect(Ss58Prefix.get(Ss58Prefix.from(63))).toBe(63);
+    expect(Ss58Prefix.get(Ss58Prefix.from(64))).toBe(64);
+    expect(Ss58Prefix.get(Ss58Prefix.from(16_383))).toBe(16_383);
   });
 
-  it(">= 64 throws", () => {
-    expect(() => Ss58Prefix.from(64)).toThrow(SampError);
+  it("> 16383 throws", () => {
+    expect(() => Ss58Prefix.from(16_384)).toThrow(SampError);
   });
 
   it("negative throws", () => {

@@ -7,8 +7,9 @@ import (
 const ss58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 func ss58Encode(pubkey Pubkey, prefix Ss58Prefix) Ss58Address {
-	payload := make([]byte, 0, 35)
-	payload = append(payload, byte(prefix.v))
+	prefixBytes := ss58EncodePrefix(prefix)
+	payload := make([]byte, 0, len(prefixBytes)+34)
+	payload = append(payload, prefixBytes...)
 	payload = append(payload, pubkey.b[:]...)
 	h, _ := blake2b.New512(nil)
 	h.Write([]byte("SS58PRE"))
@@ -26,12 +27,16 @@ func ss58Decode(s string) (Ss58Address, error) {
 	if len(decoded) < 35 {
 		return Ss58Address{}, ErrSs58TooShort
 	}
-	if decoded[0] >= 64 {
-		return Ss58Address{}, ErrSs58PrefixUnsupported
+	prefixValue, prefixLen, err := ss58DecodePrefix(decoded)
+	if err != nil {
+		return Ss58Address{}, err
 	}
-	pubkeyEnd := 1 + 32
+	pubkeyEnd := prefixLen + 32
 	if len(decoded) < pubkeyEnd+2 {
 		return Ss58Address{}, ErrSs58TooShort
+	}
+	if len(decoded) != pubkeyEnd+2 {
+		return Ss58Address{}, ErrSs58BadChecksum
 	}
 	payload := decoded[:pubkeyEnd]
 	expected := decoded[pubkeyEnd : pubkeyEnd+2]
@@ -43,12 +48,38 @@ func ss58Decode(s string) (Ss58Address, error) {
 		return Ss58Address{}, ErrSs58BadChecksum
 	}
 	var pk [32]byte
-	copy(pk[:], decoded[1:pubkeyEnd])
-	prefix, err := Ss58PrefixNew(uint16(decoded[0]))
-	if err != nil {
-		return Ss58Address{}, err
-	}
+	copy(pk[:], decoded[prefixLen:pubkeyEnd])
+	prefix := Ss58Prefix{prefixValue}
 	return Ss58Address{address: s, pubkey: Pubkey{pk}, prefix: prefix}, nil
+}
+
+func ss58EncodePrefix(prefix Ss58Prefix) []byte {
+	value := prefix.v
+	if value < 64 {
+		return []byte{byte(value)}
+	}
+	return []byte{
+		byte((value&0b0000000011111100)>>2) | 0b01000000,
+		byte(value>>8) | byte((value&0b0000000000000011)<<6),
+	}
+}
+
+func ss58DecodePrefix(decoded []byte) (uint16, int, error) {
+	first := decoded[0]
+	if first&0b10000000 != 0 {
+		return 0, 0, ErrSs58PrefixUnsupported
+	}
+	if first&0b01000000 == 0 {
+		return uint16(first), 1, nil
+	}
+	if len(decoded) < 2 {
+		return 0, 0, ErrSs58TooShort
+	}
+	second := decoded[1]
+	value := (uint16(first&0b00111111) << 2) |
+		uint16(second>>6) |
+		(uint16(second&0b00111111) << 8)
+	return value, 2, nil
 }
 
 func bs58Decode(input string) ([]byte, bool) {

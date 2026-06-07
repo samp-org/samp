@@ -12,7 +12,10 @@ use samp::encryption;
 use samp::extrinsic::{build_signed_extrinsic, ChainParams};
 use samp::scale::{decode_compact, encode_compact};
 use samp::wire::*;
-use samp::{BlockRef, GenesisHash, Nonce, Pubkey, Seed, Signature};
+use samp::{
+    BlockRef, CallArgs, CallIdx, ContentKey, EphPubkey, ExtrinsicNonce, GenesisHash, Nonce,
+    PalletIdx, Pubkey, Seed, Signature, SpecVersion, Ss58Prefix, TxVersion,
+};
 
 fn h(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
@@ -113,6 +116,18 @@ struct NegativeCases {
 }
 
 #[derive(Serialize)]
+struct Ss58CaseVec {
+    prefix: u16,
+    address: String,
+}
+
+#[derive(Serialize)]
+struct Ss58Vec {
+    pubkey: String,
+    cases: Vec<Ss58CaseVec>,
+}
+
+#[derive(Serialize)]
 struct TestVectors {
     alice: KeypairVec,
     bob: KeypairVec,
@@ -126,6 +141,7 @@ struct TestVectors {
     group_message: GroupMsgVec,
     edge_cases: EdgeCases,
     negative_cases: NegativeCases,
+    ss58: Ss58Vec,
 }
 
 fn make_keypair_vec(seed: &[u8; 32]) -> KeypairVec {
@@ -135,7 +151,7 @@ fn make_keypair_vec(seed: &[u8; 32]) -> KeypairVec {
     KeypairVec {
         seed: h(seed),
         sr25519_public: h(&kp.public.to_bytes()),
-        signing_scalar: h(&scalar.to_bytes()),
+        signing_scalar: h(scalar.expose_secret()),
     }
 }
 
@@ -234,10 +250,15 @@ fn main() {
         &encrypted_content,
     );
 
-    let samp::Remark::Encrypted(parsed) = decode_remark(&enc_remark).unwrap() else {
+    let samp::Remark::Encrypted {
+        nonce: parsed_nonce,
+        ciphertext: parsed_ciphertext,
+        ..
+    } = decode_remark(&enc_remark).unwrap()
+    else {
         panic!("expected Encrypted");
     };
-    let decrypted = encryption::decrypt(&parsed, &bob_scalar).unwrap();
+    let decrypted = encryption::decrypt(&parsed_ciphertext, &parsed_nonce, &bob_scalar).unwrap();
     assert_eq!(decrypted.as_bytes(), plaintext);
 
     // === Thread message ===
@@ -254,9 +275,13 @@ fn main() {
     let thread_nonce = Nonce::from_bytes(thread_nonce_bytes);
 
     let thread_plaintext_typed = samp::Plaintext::from_bytes(thread_plaintext.clone());
-    let thread_encrypted =
-        encryption::encrypt(&thread_plaintext_typed, &bob_pubkey, &thread_nonce, &alice_seed)
-            .unwrap();
+    let thread_encrypted = encryption::encrypt(
+        &thread_plaintext_typed,
+        &bob_pubkey,
+        &thread_nonce,
+        &alice_seed,
+    )
+    .unwrap();
     let thread_view_tag =
         encryption::compute_view_tag(&alice_seed, &bob_pubkey, &thread_nonce).unwrap();
     let thread_remark = encode_encrypted(
@@ -266,10 +291,16 @@ fn main() {
         &thread_encrypted,
     );
 
-    let samp::Remark::Thread(thread_parsed) = decode_remark(&thread_remark).unwrap() else {
+    let samp::Remark::Thread {
+        nonce: thread_parsed_nonce,
+        ciphertext: thread_parsed_ciphertext,
+        ..
+    } = decode_remark(&thread_remark).unwrap()
+    else {
         panic!("expected Thread");
     };
-    let thread_decrypted = encryption::decrypt(&thread_parsed, &bob_scalar).unwrap();
+    let thread_decrypted =
+        encryption::decrypt(&thread_parsed_ciphertext, &thread_parsed_nonce, &bob_scalar).unwrap();
     assert_eq!(thread_decrypted.as_bytes(), thread_plaintext.as_slice());
 
     // === Sender self-decryption intermediates ===
@@ -295,7 +326,8 @@ fn main() {
         .unwrap();
     let sd_shared = (sd_eph_scalar * sd_recip_point).compress().to_bytes();
 
-    let sd_decrypted = encryption::decrypt_as_sender(&parsed, &alice_seed).unwrap();
+    let sd_decrypted =
+        encryption::decrypt_as_sender(&parsed_ciphertext, &parsed_nonce, &alice_seed).unwrap();
     assert_eq!(sd_decrypted.as_bytes(), plaintext);
 
     // === Channel message ===
@@ -327,14 +359,19 @@ fn main() {
     let mut root_plaintext = member_list_encoded.clone();
     root_plaintext.extend_from_slice(group_body);
 
-    let group_inner =
-        encode_thread_content(BlockRef::ZERO, BlockRef::ZERO, BlockRef::ZERO, &root_plaintext);
+    let group_inner = encode_thread_content(
+        BlockRef::ZERO,
+        BlockRef::ZERO,
+        BlockRef::ZERO,
+        &root_plaintext,
+    );
 
     let content_key: [u8; 32] = [0xDD; 32];
     let group_eph_scalar = encryption::derive_group_ephemeral(&alice_seed, &group_nonce);
     let group_eph_pubkey = (group_eph_scalar * RISTRETTO_BASEPOINT_POINT).compress();
+    let group_content_key = ContentKey::from_bytes(content_key);
     let group_capsules = encryption::build_capsules(
-        &content_key,
+        &group_content_key,
         &group_members,
         &group_eph_scalar,
         &group_nonce,
@@ -342,11 +379,14 @@ fn main() {
 
     let group_cipher = ChaCha20Poly1305::new((&content_key).into());
     let group_ciphertext_raw = group_cipher
-        .encrypt(ChaChaNonce::from_slice(&group_nonce_bytes), group_inner.as_slice())
+        .encrypt(
+            ChaChaNonce::from_slice(&group_nonce_bytes),
+            group_inner.as_slice(),
+        )
         .expect("group encryption");
     let group_ciphertext = samp::Ciphertext::from_bytes(group_ciphertext_raw);
 
-    let group_eph_pubkey_pk = Pubkey::from_bytes(group_eph_pubkey.to_bytes());
+    let group_eph_pubkey_pk = EphPubkey::from_bytes(group_eph_pubkey.to_bytes());
     let group_remark = encode_group(
         &group_nonce,
         &group_eph_pubkey_pk,
@@ -354,25 +394,38 @@ fn main() {
         &group_ciphertext,
     );
 
-    let group_payload_for_decode = match decode_remark(&group_remark).unwrap() {
-        samp::Remark::Group(p) => p,
-        _ => panic!("expected Group"),
-    };
-    let bob_decrypted =
-        encryption::decrypt_from_group(&group_payload_for_decode, &bob_scalar, Some(3)).unwrap();
+    let (group_nonce_for_decode, group_payload_for_decode) =
+        match decode_remark(&group_remark).unwrap() {
+            samp::Remark::Group { nonce, content } => (nonce, content),
+            _ => panic!("expected Group"),
+        };
+    let bob_decrypted = encryption::decrypt_from_group(
+        &group_payload_for_decode,
+        &group_nonce_for_decode,
+        &bob_scalar,
+        Some(3),
+    )
+    .unwrap();
     assert_eq!(bob_decrypted.as_bytes(), group_inner.as_slice());
 
-    let charlie_decrypted =
-        encryption::decrypt_from_group(&group_payload_for_decode, &charlie_scalar, Some(3))
-            .unwrap();
+    let charlie_decrypted = encryption::decrypt_from_group(
+        &group_payload_for_decode,
+        &group_nonce_for_decode,
+        &charlie_scalar,
+        Some(3),
+    )
+    .unwrap();
     assert_eq!(charlie_decrypted.as_bytes(), group_inner.as_slice());
 
     let random_seed = Seed::from_bytes([0xEE; 32]);
     let random_scalar = encryption::sr25519_signing_scalar(&random_seed);
-    assert!(
-        encryption::decrypt_from_group(&group_payload_for_decode, &random_scalar, Some(3))
-            .is_err()
-    );
+    assert!(encryption::decrypt_from_group(
+        &group_payload_for_decode,
+        &group_nonce_for_decode,
+        &random_scalar,
+        Some(3),
+    )
+    .is_err());
 
     // === Edge cases ===
     let empty_body_public = encode_public(&bob_pubkey, "");
@@ -396,6 +449,16 @@ fn main() {
 
     let scale_vectors = build_scale_vectors();
     let extrinsic_vectors = build_extrinsic_vectors(&alice_kp, &alice_seed_bytes);
+    let ss58_cases = [0u16, 42, 63, 64, 255, 16_383]
+        .into_iter()
+        .map(|prefix| {
+            let prefix_typed = Ss58Prefix::new(prefix).unwrap();
+            Ss58CaseVec {
+                prefix,
+                address: bob_pubkey.to_ss58(prefix_typed).as_str().to_string(),
+            }
+        })
+        .collect();
 
     let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -486,9 +549,19 @@ fn main() {
             reserved_type,
             truncated_encrypted,
         },
+        ss58: Ss58Vec {
+            pubkey: h(bob_pubkey.as_bytes()),
+            cases: ss58_cases,
+        },
     };
 
-    println!("{}", serde_json::to_string_pretty(&vectors).unwrap());
+    let vectors_json = serde_json::to_string_pretty(&vectors).unwrap();
+    std::fs::write(
+        out_dir.join("test-vectors.json"),
+        format!("{vectors_json}\n"),
+    )
+    .expect("write test-vectors.json");
+    println!("{vectors_json}");
 }
 
 #[derive(Serialize)]
@@ -560,13 +633,16 @@ struct ExtrinsicVectors {
     cases: Vec<ExtrinsicCaseVec>,
 }
 
-fn build_extrinsic_vectors(alice_kp: &schnorrkel::Keypair, _alice_seed: &[u8; 32]) -> ExtrinsicVectors {
+fn build_extrinsic_vectors(
+    alice_kp: &schnorrkel::Keypair,
+    _alice_seed: &[u8; 32],
+) -> ExtrinsicVectors {
     let public_key = Pubkey::from_bytes(alice_kp.public.to_bytes());
-    let chain = ChainParams {
-        genesis_hash: GenesisHash::from_bytes([0x11; 32]),
-        spec_version: 100,
-        tx_version: 1,
-    };
+    let chain = ChainParams::new(
+        GenesisHash::from_bytes([0x11; 32]),
+        SpecVersion::new(100),
+        TxVersion::new(1),
+    );
     let fixed_signature = Signature::from_bytes([0xAB; 64]);
 
     let long_payload = vec![0xCD; 1024];
@@ -618,17 +694,18 @@ struct CaseInputs<'a> {
 }
 
 fn build_case(c: CaseInputs<'_>) -> ExtrinsicCaseVec {
-    let mut call_args = Vec::new();
-    encode_compact(c.remark.len() as u64, &mut call_args);
-    call_args.extend_from_slice(c.remark);
+    let mut call_args_raw = Vec::new();
+    encode_compact(c.remark.len() as u64, &mut call_args_raw);
+    call_args_raw.extend_from_slice(c.remark);
+    let call_args = CallArgs::from_bytes(call_args_raw);
 
     let extrinsic = build_signed_extrinsic(
-        c.pallet_idx,
-        c.call_idx,
+        PalletIdx::new(c.pallet_idx),
+        CallIdx::new(c.call_idx),
         &call_args,
         c.public_key,
         |_msg| *c.fixed_signature,
-        c.nonce,
+        ExtrinsicNonce::new(c.nonce),
         c.chain,
     )
     .expect("build_signed_extrinsic");
@@ -637,14 +714,14 @@ fn build_case(c: CaseInputs<'_>) -> ExtrinsicCaseVec {
         label: c.label,
         pallet_idx: c.pallet_idx,
         call_idx: c.call_idx,
-        call_args: h(&call_args),
+        call_args: h(call_args.as_bytes()),
         public_key: h(c.public_key.as_bytes()),
         fixed_signature: h(c.fixed_signature.as_bytes()),
         nonce: c.nonce,
         chain_params: ChainParamsVec {
-            genesis_hash: h(c.chain.genesis_hash.as_bytes()),
-            spec_version: c.chain.spec_version,
-            tx_version: c.chain.tx_version,
+            genesis_hash: h(c.chain.genesis_hash().as_bytes()),
+            spec_version: c.chain.spec_version().get(),
+            tx_version: c.chain.tx_version().get(),
         },
         expected_extrinsic: h(extrinsic.as_bytes()),
     }

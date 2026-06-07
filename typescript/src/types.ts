@@ -238,7 +238,7 @@ export const Ss58Prefix = {
   POLKADOT: 0 as Brand<number, "Ss58Prefix">,
   KUSAMA: 2 as Brand<number, "Ss58Prefix">,
   from(n: number): Ss58Prefix {
-    if (!Number.isInteger(n) || n < 0 || n > 63) {
+    if (!Number.isInteger(n) || n < 0 || n > 16_383) {
       throw new SampError(`ss58 prefix unsupported: ${n}`);
     }
     return n as Ss58Prefix;

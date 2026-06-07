@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/blake2b"
 )
 
 var testPubkey = PubkeyFromBytes([32]byte{
@@ -11,6 +12,15 @@ var testPubkey = PubkeyFromBytes([32]byte{
 	0x04, 0xa9, 0x9f, 0xd6, 0x82, 0x2c, 0x85, 0x58, 0x85, 0x4c, 0xcd, 0xe3,
 	0x9a, 0x56, 0x84, 0xe7, 0xa5, 0x6d, 0xa2, 0x7d,
 })
+
+func rawSs58Address(payload []byte) string {
+	h, _ := blake2b.New512(nil)
+	h.Write([]byte("SS58PRE"))
+	h.Write(payload)
+	sum := h.Sum(nil)
+	raw := append(append([]byte{}, payload...), sum[:2]...)
+	return bs58Encode(raw)
+}
 
 func TestSs58EncodeDecodeRoundTrip(t *testing.T) {
 	addr := Ss58AddressEncode(testPubkey, Ss58SubstrateGeneric)
@@ -66,15 +76,16 @@ func TestSs58DecodeNonASCII(t *testing.T) {
 }
 
 func TestSs58DecodeUnsupportedPrefix(t *testing.T) {
-	// Encode a pubkey with prefix byte = 64 (>= 64 triggers unsupported).
-	// We manually build a base58 string that decodes to a payload with prefix 64.
-	// The simplest way: encode a valid address, then re-encode with a high prefix byte.
-	// Instead, just ensure the error by testing with known invalid addresses.
-	// A valid prefix-0 address starts with "1"; prefix-64+ would be different.
-	// Actually, let's just test through the internal function indirectly.
-	_, err := Ss58AddressParse("2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	// This may produce various errors; the key is no panic.
-	require.Error(t, err)
+	_, _, err := ss58DecodePrefix([]byte{0b10000000})
+	require.ErrorIs(t, err, ErrSs58PrefixUnsupported)
+}
+
+func TestSs58ParseUnsupportedPrefix(t *testing.T) {
+	pk := testPubkey.Bytes()
+	payload := append([]byte{0b10000000}, pk[:]...)
+
+	_, err := Ss58AddressParse(rawSs58Address(payload))
+	require.ErrorIs(t, err, ErrSs58PrefixUnsupported)
 }
 
 func TestBs58EncodeEmpty(t *testing.T) {
@@ -91,6 +102,25 @@ func TestBs58DecodeInvalidCharacter(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestSs58DecodeTwoBytePrefixTooShort(t *testing.T) {
+	_, _, err := ss58DecodePrefix([]byte{0b01000000})
+	require.ErrorIs(t, err, ErrSs58TooShort)
+}
+
+func TestSs58DecodeTwoBytePayloadMissingChecksumByte(t *testing.T) {
+	raw := append([]byte{0b01000000, 0}, make([]byte, 33)...)
+
+	_, err := Ss58AddressParse(bs58Encode(raw))
+	require.ErrorIs(t, err, ErrSs58TooShort)
+}
+
+func TestSs58DecodeExtraPayloadBytes(t *testing.T) {
+	raw := append([]byte{42}, make([]byte, 35)...)
+
+	_, err := Ss58AddressParse(bs58Encode(raw))
+	require.ErrorIs(t, err, ErrSs58BadChecksum)
+}
+
 func TestSs58PrefixBoundary(t *testing.T) {
 	prefix63, err := Ss58PrefixNew(63)
 	require.NoError(t, err)
@@ -99,6 +129,20 @@ func TestSs58PrefixBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint16(63), parsed.Prefix().Get())
 
-	_, err = Ss58PrefixNew(64)
+	prefix64, err := Ss58PrefixNew(64)
+	require.NoError(t, err)
+	addr = Ss58AddressEncode(testPubkey, prefix64)
+	parsed, err = Ss58AddressParse(addr.String())
+	require.NoError(t, err)
+	require.Equal(t, uint16(64), parsed.Prefix().Get())
+
+	prefixMax, err := Ss58PrefixNew(16383)
+	require.NoError(t, err)
+	addr = Ss58AddressEncode(testPubkey, prefixMax)
+	parsed, err = Ss58AddressParse(addr.String())
+	require.NoError(t, err)
+	require.Equal(t, uint16(16383), parsed.Prefix().Get())
+
+	_, err = Ss58PrefixNew(16384)
 	require.Error(t, err)
 }
