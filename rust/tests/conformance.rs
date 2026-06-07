@@ -2162,7 +2162,7 @@ fn decrypt_from_group_trial_with_multiple_capsules() {
         .collect();
     let members: Vec<_> = seeds
         .iter()
-        .map(|s| encryption::public_from_seed(s))
+        .map(encryption::public_from_seed)
         .collect();
     let n = Nonce::from_bytes([0x01; 12]);
     let plaintext = Plaintext::from_bytes(b"multi-member trial".to_vec());
