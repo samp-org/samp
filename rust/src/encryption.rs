@@ -318,35 +318,18 @@ pub fn build_capsules(
     Capsules::from_bytes(out).expect("len is multiple of CAPSULE_SIZE by construction")
 }
 
-pub(crate) fn scan_capsules(
-    data: &[u8],
-    eph_pubkey: &EphPubkey,
-    my_scalar: &Scalar,
-    nonce: &Nonce,
-) -> Option<(usize, ContentKey)> {
-    let eph_point = eph_pubkey.to_compressed_ristretto();
-    let mut shared = ecdh_shared_secret(my_scalar, &eph_point).ok()?;
-    let my_tag = derive_view_tag(&shared);
-    let mut kek = derive_key_wrap(&shared, nonce);
+fn content_key_from_capsule(data: &[u8], offset: usize, kek: &[u8; 32]) -> ContentKey {
+    let mut wrapped = [0u8; 32];
+    wrapped.copy_from_slice(&data[offset + 1..offset + CAPSULE_SIZE]);
+    ContentKey::from_bytes(xor32(&wrapped, kek))
+}
 
-    let mut offset = 0;
-    let mut idx = 0;
-    while offset + CAPSULE_SIZE <= data.len() {
-        let tag = data[offset];
-        if tag == my_tag {
-            let mut wrapped = [0u8; 32];
-            wrapped.copy_from_slice(&data[offset + 1..offset + 33]);
-            let content_key = ContentKey::from_bytes(xor32(&wrapped, &kek));
-            shared.zeroize();
-            kek.zeroize();
-            return Some((idx, content_key));
-        }
-        offset += CAPSULE_SIZE;
-        idx += 1;
-    }
-    shared.zeroize();
-    kek.zeroize();
-    None
+fn decrypt_group_at(content_key: &ContentKey, nonce: &Nonce, data: &[u8]) -> Option<Plaintext> {
+    let cipher = ChaCha20Poly1305::new(content_key.expose_secret().into());
+    cipher
+        .decrypt(ChaChaNonce::from_slice(nonce.as_bytes()), data)
+        .map(Plaintext::from_bytes)
+        .ok()
 }
 
 pub fn encrypt_for_group(
@@ -404,38 +387,53 @@ pub fn decrypt_from_group(
     let after_eph = &content[32..];
 
     let scalar = view_scalar_to_ristretto(my_scalar);
-    let (capsule_idx, content_key) =
-        scan_capsules(after_eph, &eph_pubkey, &scalar, nonce).ok_or(SampError::DecryptionFailed)?;
+    let eph_point = eph_pubkey.to_compressed_ristretto();
+    let mut shared =
+        ecdh_shared_secret(&scalar, &eph_point).map_err(|_| SampError::DecryptionFailed)?;
+    let my_tag = derive_view_tag(&shared);
+    let mut kek = derive_key_wrap(&shared, nonce);
 
-    let cipher = ChaCha20Poly1305::new(content_key.expose_secret().into());
-
-    if let Some(n) = known_member_count {
-        let ct_start = n * CAPSULE_SIZE;
-        if ct_start > after_eph.len() {
-            return Err(SampError::InsufficientData);
+    let result = (|| {
+        let mut offset = 0;
+        let mut capsule_idx = 0;
+        while offset + CAPSULE_SIZE <= after_eph.len() {
+            if after_eph[offset] == my_tag {
+                let content_key = content_key_from_capsule(after_eph, offset, &kek);
+                if let Some(n) = known_member_count {
+                    let ct_start = n
+                        .checked_mul(CAPSULE_SIZE)
+                        .ok_or(SampError::InsufficientData)?;
+                    if ct_start > after_eph.len() {
+                        return Err(SampError::InsufficientData);
+                    }
+                    if let Some(plaintext) =
+                        decrypt_group_at(&content_key, nonce, &after_eph[ct_start..])
+                    {
+                        return Ok(plaintext);
+                    }
+                } else {
+                    let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE;
+                    for n in capsule_idx + 1..=max_n {
+                        let ct_start = n * CAPSULE_SIZE;
+                        if ct_start >= after_eph.len() {
+                            break;
+                        }
+                        if let Some(plaintext) =
+                            decrypt_group_at(&content_key, nonce, &after_eph[ct_start..])
+                        {
+                            return Ok(plaintext);
+                        }
+                    }
+                }
+            }
+            offset += CAPSULE_SIZE;
+            capsule_idx += 1;
         }
-        let result = cipher
-            .decrypt(
-                ChaChaNonce::from_slice(nonce.as_bytes()),
-                &after_eph[ct_start..],
-            )
-            .map(Plaintext::from_bytes)
-            .map_err(|_| SampError::DecryptionFailed);
-        return result;
-    }
-
-    let min_n = capsule_idx + 1;
-    let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE;
-    for n in min_n..=max_n {
-        let ct_start = n * CAPSULE_SIZE;
-        if let Ok(plaintext) = cipher.decrypt(
-            ChaChaNonce::from_slice(nonce.as_bytes()),
-            &after_eph[ct_start..],
-        ) {
-            return Ok(Plaintext::from_bytes(plaintext));
-        }
-    }
-    Err(SampError::DecryptionFailed)
+        Err(SampError::DecryptionFailed)
+    })();
+    shared.zeroize();
+    kek.zeroize();
+    result
 }
 
 #[cfg(test)]
