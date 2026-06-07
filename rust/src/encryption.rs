@@ -415,9 +415,6 @@ pub fn decrypt_from_group(
                     let max_n = (after_eph.len().saturating_sub(16)) / CAPSULE_SIZE;
                     for n in capsule_idx + 1..=max_n {
                         let ct_start = n * CAPSULE_SIZE;
-                        if ct_start >= after_eph.len() {
-                            break;
-                        }
                         if let Some(plaintext) =
                             decrypt_group_at(&content_key, nonce, &after_eph[ct_start..])
                         {
