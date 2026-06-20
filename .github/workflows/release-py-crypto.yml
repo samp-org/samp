@@ -3,13 +3,13 @@ name: Release samp-crypto
 on:
   push:
     tags:
-      - "samp-crypto/v*"
+      - "python/samp-crypto/v*"
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-samp-crypto-${{ github.ref }}
+  group: release-python-samp-crypto-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
