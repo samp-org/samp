@@ -3,13 +3,13 @@ name: Release samp-core
 on:
   push:
     tags:
-      - "samp-core/v*"
+      - "python/samp-core/v*"
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-samp-core-${{ github.ref }}
+  group: release-python-samp-core-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
