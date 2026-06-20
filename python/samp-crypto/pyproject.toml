@@ -5,4 +5,34 @@ build-backend = "maturin"
 [project]
 name = "samp-crypto"
 version = "1.0.0"
+description = "Native cryptographic backend for samp-core (Substrate Account Messaging Protocol)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
+authors = [{ name = "Maciej Kula" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Security :: Cryptography",
+]
+
+[project.urls]
+Homepage = "https://github.com/samp-org/samp"
+Repository = "https://github.com/samp-org/samp"
+Issues = "https://github.com/samp-org/samp/issues"
+Specification = "https://github.com/samp-org/samp/blob/main/specs/samp.md"
+
+[tool.maturin]
+module-name = "samp_crypto"
+features = ["pyo3/extension-module"]

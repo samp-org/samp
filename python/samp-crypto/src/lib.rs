@@ -57,46 +57,6 @@ fn sr25519_signing_scalar(seed: &[u8]) -> PyResult<Vec<u8>> {
     Ok(secret.to_bytes()[..32].to_vec())
 }
 
-#[pyfunction]
-fn ecdh(scalar: &[u8], point: &[u8]) -> PyResult<Vec<u8>> {
-    if scalar.len() != 32 || point.len() != 32 {
-        return Err(err("scalar and point must be 32 bytes"));
-    }
-    let s = Scalar::from_bytes_mod_order(scalar.try_into().unwrap());
-    let p = CompressedRistretto(point.try_into().unwrap())
-        .decompress()
-        .ok_or_else(|| err("invalid ristretto255 point"))?;
-    Ok((s * p).compress().to_bytes().to_vec())
-}
-
-#[pyfunction]
-fn hkdf_sha256(ikm: &[u8], salt: &[u8], info: &[u8], length: usize) -> PyResult<Vec<u8>> {
-    let salt_opt = if salt.is_empty() { None } else { Some(salt) };
-    let hk = Hkdf::<Sha256>::new(salt_opt, ikm);
-    let mut out = vec![0u8; length];
-    hk.expand(info, &mut out).map_err(|e| err(&e.to_string()))?;
-    Ok(out)
-}
-
-#[pyfunction]
-fn chacha20poly1305_encrypt(key: &[u8], nonce: &[u8], plaintext: &[u8]) -> PyResult<Vec<u8>> {
-    if key.len() != 32 || nonce.len() != 12 {
-        return Err(err("key must be 32 bytes, nonce must be 12 bytes"));
-    }
-    let cipher = ChaCha20Poly1305::new(key.into());
-    cipher.encrypt(Nonce::from_slice(nonce), plaintext).map_err(|e| err(&e.to_string()))
-}
-
-#[pyfunction]
-fn chacha20poly1305_decrypt(key: &[u8], nonce: &[u8], ciphertext: &[u8]) -> PyResult<Vec<u8>> {
-    if key.len() != 32 || nonce.len() != 12 {
-        return Err(err("key must be 32 bytes, nonce must be 12 bytes"));
-    }
-    let cipher = ChaCha20Poly1305::new(key.into());
-    cipher.decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| err("decryption failed"))
-}
-
 fn derive_ephemeral(seed: &[u8; 32], recipient: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, seed);
     let mut info = [0u8; 44];
@@ -519,10 +479,6 @@ fn samp_crypto(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(public_from_seed, m)?)?;
     m.add_function(wrap_pyfunction!(sr25519_sign, m)?)?;
     m.add_function(wrap_pyfunction!(sr25519_signing_scalar, m)?)?;
-    m.add_function(wrap_pyfunction!(ecdh, m)?)?;
-    m.add_function(wrap_pyfunction!(hkdf_sha256, m)?)?;
-    m.add_function(wrap_pyfunction!(chacha20poly1305_encrypt, m)?)?;
-    m.add_function(wrap_pyfunction!(chacha20poly1305_decrypt, m)?)?;
     m.add_function(wrap_pyfunction!(compute_view_tag, m)?)?;
     m.add_function(wrap_pyfunction!(encrypt_content, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt_content, m)?)?;
@@ -535,4 +491,107 @@ fn samp_crypto(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encrypt_for_group, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt_from_group, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn err_msg(e: PyErr) -> String {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|_py| e.to_string())
+    }
+
+    #[test]
+    fn public_from_seed_rejects_wrong_length() {
+        let e = public_from_seed(&[0u8; 31]).unwrap_err();
+        assert!(err_msg(e).contains("seed must be 32 bytes"));
+    }
+
+    #[test]
+    fn sr25519_signing_scalar_rejects_wrong_length() {
+        let e = sr25519_signing_scalar(&[0u8; 16]).unwrap_err();
+        assert!(err_msg(e).contains("seed must be 32 bytes"));
+    }
+
+    #[test]
+    fn compute_view_tag_rejects_wrong_lengths() {
+        let seed = [1u8; 32];
+        let pk = [2u8; 32];
+        let n = [3u8; 12];
+        assert!(compute_view_tag(&seed[..31], &pk, &n).is_err());
+        assert!(compute_view_tag(&seed, &pk[..31], &n).is_err());
+        assert!(compute_view_tag(&seed, &pk, &n[..11]).is_err());
+    }
+
+    #[test]
+    fn encrypt_content_rejects_wrong_lengths() {
+        let plaintext = b"hi";
+        let recip = [0u8; 32];
+        let n = [0u8; 12];
+        let seed = [0u8; 32];
+        assert!(encrypt_content(plaintext, &recip[..31], &n, &seed).is_err());
+        assert!(encrypt_content(plaintext, &recip, &n[..11], &seed).is_err());
+        assert!(encrypt_content(plaintext, &recip, &n, &seed[..31]).is_err());
+    }
+
+    #[test]
+    fn encrypt_content_rejects_invalid_ristretto_point() {
+        let mut bad_pubkey = [0u8; 32];
+        bad_pubkey[0] = 0xff;
+        bad_pubkey[31] = 0xff;
+        let n = [0u8; 12];
+        let seed = [1u8; 32];
+        let e = encrypt_content(b"x", &bad_pubkey, &n, &seed).unwrap_err();
+        assert!(err_msg(e).contains("invalid recipient pubkey"));
+    }
+
+    #[test]
+    fn decrypt_content_rejects_short_content() {
+        let scalar = [0u8; 32];
+        let n = [0u8; 12];
+        let e = decrypt_content(&[0u8; ENCRYPTED_OVERHEAD - 1], &scalar, &n).unwrap_err();
+        assert!(err_msg(e).contains("content too short"));
+    }
+
+    #[test]
+    fn decrypt_content_rejects_wrong_lengths() {
+        let content = [0u8; ENCRYPTED_OVERHEAD];
+        assert!(decrypt_content(&content, &[0u8; 31], &[0u8; 12]).is_err());
+        assert!(decrypt_content(&content, &[0u8; 32], &[0u8; 11]).is_err());
+    }
+
+    #[test]
+    fn decrypt_from_group_known_n_overflow() {
+        let seed = [1u8; 32];
+        let recipient_seed = [2u8; 32];
+        let recipient_pub = public_from_seed(&recipient_seed).unwrap();
+        let nonce = [3u8; 12];
+        let (eph, caps, ct) =
+            encrypt_for_group(b"hi", vec![recipient_pub.clone()], &nonce, &seed).unwrap();
+        let mut content = Vec::new();
+        content.extend_from_slice(&eph);
+        content.extend_from_slice(&caps);
+        content.extend_from_slice(&ct);
+        let scalar = sr25519_signing_scalar(&recipient_seed).unwrap();
+        let e = decrypt_from_group(&content, &scalar, &nonce, Some(usize::MAX)).unwrap_err();
+        assert!(err_msg(e).contains("content too short"));
+        let e2 = decrypt_from_group(&content, &scalar, &nonce, Some(999)).unwrap_err();
+        assert!(err_msg(e2).contains("content too short"));
+    }
+
+    #[test]
+    fn check_view_tag_matches_compute_view_tag() {
+        let sender_seed = [7u8; 32];
+        let recipient_seed = [9u8; 32];
+        let recipient_pub = public_from_seed(&recipient_seed).unwrap();
+        let nonce = [11u8; 12];
+        let plaintext = b"payload";
+        let content =
+            encrypt_content(plaintext, &recipient_pub, &nonce, &sender_seed).unwrap();
+        let sender_tag = compute_view_tag(&sender_seed, &recipient_pub, &nonce).unwrap();
+        let recipient_scalar = sr25519_signing_scalar(&recipient_seed).unwrap();
+        let recipient_tag = check_view_tag(&recipient_scalar, &content).unwrap();
+        assert_eq!(sender_tag, recipient_tag);
+    }
 }
