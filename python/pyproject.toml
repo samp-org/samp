@@ -1,11 +1,11 @@
 [project]
 name = "samp-core"
-version = "1.2.0"
+version = "1.2.1"
 description = "Substrate Account Messaging Protocol -- Python SDK"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["samp-crypto"]
+dependencies = ["samp-crypto==1.0.0"]
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy"]
