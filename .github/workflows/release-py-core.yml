@@ -1,0 +1,44 @@
+name: Release samp-core
+
+on:
+  push:
+    tags:
+      - "samp-core/v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-samp-core-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+        working-directory: python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: python/dist
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

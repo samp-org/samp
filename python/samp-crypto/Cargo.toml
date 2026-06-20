@@ -9,7 +9,7 @@ name = "samp_crypto"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.28"
+pyo3 = { version = "0.28", features = ["abi3-py39"] }
 schnorrkel = "0.11"
 curve25519-dalek = { version = "4", features = ["digest"] }
 hkdf = "0.12"
